@@ -11,6 +11,20 @@ const PLUS_ICON =
   '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
 
 /** Renders GLB thumbnails one at a time on a single short-lived renderer. */
+/** Studio-owned media (/library, /models) lives under the published prefix; site-level paths stay as written. */
+const studioPath = (p: string): string => (p.startsWith('/library/') || p.startsWith('/models/') ? u(p) : p);
+
+/** Points a manifest entry at the right place for where the studio is hosted. */
+function resolveItem(item: LibraryItem): LibraryItem {
+  const thumb = { ...item.thumb };
+  if (thumb.image) thumb.image = studioPath(thumb.image);
+  if (thumb.glb) thumb.glb = studioPath(thumb.glb);
+  const action = { ...item.action } as LibraryItem['action'] & { hostedHref?: string; url?: string; href?: string };
+  if (action.url) action.url = studioPath(action.url);
+  if (action.type === 'page' && action.hostedHref && u('') !== '') action.href = action.hostedHref;
+  return { ...item, thumb, action } as LibraryItem;
+}
+
 class GlbThumbnailer {
   private cache = new Map<string, string>();
   private queue: Promise<unknown> = Promise.resolve();
@@ -135,7 +149,7 @@ export class LibraryGallery {
         const resp = await fetch(this.manifestUrl);
         if (!resp.ok) throw new Error(String(resp.status));
         const manifest = (await resp.json()) as LibraryManifest;
-        this.renderItems(manifest.items);
+        this.renderItems(manifest.items.map(resolveItem));
       } catch {
         this.loaded = false;
         this.grid.textContent = 'The library could not be loaded. Close it and try again.';
