@@ -4,6 +4,8 @@ import { u } from '../base';
 type BrandColor = 'purple' | 'red' | 'orange' | 'blue' | 'green';
 
 interface FocusOption {
+  /** Where this focus lands the visitor: a same-origin path (e.g. /studio). */
+  route?: string;
   id: string;
   label: string;
   color: BrandColor;
@@ -101,9 +103,11 @@ export function markOnboarded(): void {
   document.cookie = `${ONBOARDED_COOKIE}=1; path=/; max-age=31536000; SameSite=Lax`;
 }
 
-export function continueToDestination(): void {
+export function continueToDestination(focusRoute: string | null = null): void {
+  // An explicit ?next= (the visitor was heading to the studio) wins, then the chosen focus's UI.
   const next = new URLSearchParams(window.location.search).get('next');
-  if (next && CONTINUE_TO.has(next)) window.location.assign(next);
+  if (next && CONTINUE_TO.has(next)) return window.location.assign(next);
+  if (focusRoute && focusRoute !== window.location.pathname.replace(/\/$/, '')) window.location.assign(focusRoute);
 }
 
 export class Onboarding {
@@ -344,21 +348,27 @@ export class Onboarding {
     }, 900);
   }
 
+  /** The UI the chosen focus opens (from the CMS-registered focus options). */
+  private routeFor(focusId: string): string | null {
+    const route = this.focusOptions.find((f) => f.id === focusId)?.route;
+    return route && /^\/(?!\/)[\w\-/]*$/.test(route) ? route : null;
+  }
+
   private ready(profile: OnboardingProfile): void {
     this.d('launch-title').textContent = `You're in, ${this.first(profile.name)}`;
     this.d('launch-line').textContent = `Your ${profile.focusLabel} studio is ready.`;
     this.d('launch').classList.add('ready');
     markOnboarded();
     window.dispatchEvent(new CustomEvent<OnboardingProfile>(ONBOARDED_EVENT, { detail: profile }));
-    window.setTimeout(() => this.dismiss(), 1100);
+    window.setTimeout(() => this.dismiss(profile), 1100);
   }
 
-  private dismiss(): void {
+  private dismiss(profile: OnboardingProfile): void {
     this.root.classList.add('ob-leaving');
     window.setTimeout(() => {
       this.root.remove();
       if (window.location.pathname === '/onboarding') window.history.replaceState(null, '', '/');
-      continueToDestination();
+      continueToDestination(this.routeFor(profile.focus));
     }, 500);
   }
 }
