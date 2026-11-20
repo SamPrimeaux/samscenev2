@@ -35,6 +35,7 @@
 }
 .lib-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .lib-thumb--model img { object-fit: contain; }
+.lib-thumb img[src$='.svg'] { object-fit: contain; padding: 20%; }
 .lib-thumb--loading {
   background: linear-gradient(100deg,
     color-mix(in srgb, var(--text-primary) 82%, var(--bg-app)) 30%,

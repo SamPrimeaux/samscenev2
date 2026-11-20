@@ -122,8 +122,16 @@ export function renderBeyondPage(root: string): string {
     .replace('<!--IA_CHROME_FOOTER-->', '');
 }
 
+/** The PrimeTech public site runs as its own local app; /site hands the visitor to it on the same host. */
+const SITE_PORT = 4363;
+
 export function registerLibraryRoutes(app: Express, root: string): void {
   const three = path.join(root, 'node_modules', 'three');
+
+  app.get('/site', (req: Request, res: Response) => {
+    const host = (req.headers.host ?? 'localhost').replace(/:\d+$/, '');
+    res.redirect(307, `http://${host}:${SITE_PORT}/`);
+  });
 
   // The Beyond template's import map points three at /beyond/vendor.
   app.use('/beyond/vendor/addons', express.static(path.join(three, 'examples', 'jsm')));
