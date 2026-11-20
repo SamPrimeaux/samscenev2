@@ -16,6 +16,8 @@ export type EnvironmentLevelId =
   | 'twilight-forest'
   | 'coastal-observatory'
   | 'orbital-lab'
+  | 'primetech-arch-identity'
+  | 'primetech-sculptural-emblem'
   | 'primetech-vault'
   | 'iamscene-circuit';
 
@@ -645,6 +647,31 @@ export interface IamSceneDocument {
   triggerMode: SkyTriggerMode;
   nodes: IamSceneNode[];
   updatedAt: string;
+}
+
+export interface ThemeSceneDefinition {
+  id: string;
+  slug: string;
+  title: string;
+  subtitle: string;
+  environmentId: EnvironmentLevelId;
+  subjectId: StudioSubjectId;
+  rendererKey: string;
+  assetUrls: string[];
+  camera: {
+    position: [number, number, number];
+    target: [number, number, number];
+    fov: number;
+  };
+  lighting: {
+    moodId: AtmosphereMoodId;
+    neutralObsidianOverride: boolean;
+    keyColorHex: string;
+    rimColorHex: string;
+    backgroundHex: string;
+    fogDensity: number;
+  };
+  props: Record<string, unknown>;
 }
 
 export interface PrimeTechEcosystemSnapshot {

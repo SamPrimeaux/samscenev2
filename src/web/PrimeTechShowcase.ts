@@ -9,6 +9,7 @@ import type {
   PrimeTechEcosystemSnapshot,
   SkyTriggerMode,
   StudioSubjectId,
+  ThemeSceneDefinition,
 } from '../types.ts';
 
 export type ShowcaseTargetTab =
@@ -19,15 +20,18 @@ export type ShowcaseTargetTab =
   | 'walkthrough'
   | 'assets';
 
+export type ShowcaseSceneSlot = 'scene1' | 'scene2';
+
 export type ShowcaseWorldPresetId =
-  | 'cadmesh-vault'
+  | 'arch-identity'
   | 'p-icon-glb'
   | 'wordmark-glb'
-  | 'plinth-vault'
-  | 'iamscene-circuit';
+  | 'chamber-glb'
+  | 'sculptural-emblem';
 
 export interface ShowcaseWorldPreset {
   id: ShowcaseWorldPresetId;
+  sceneSlot: ShowcaseSceneSlot;
   label: string;
   shortLabel: string;
   environmentId: EnvironmentLevelId;
@@ -43,6 +47,7 @@ export interface ShowcaseGlbModelAsset {
   filename: string;
   url: string;
   title: string;
+  sceneSlot: ShowcaseSceneSlot;
   heroMode: HeroAssetPreviewMode;
   formatNote: string;
   description: string;
@@ -53,104 +58,124 @@ export const SHOWCASE_GLB_ASSETS: ShowcaseGlbModelAsset[] = [
     id: 'p-icon',
     filename: 'primetech-p-icon.glb',
     url: '/models/primetech-p-icon.glb',
-    title: 'Geometric P Icon Emblem',
+    title: '5-Facet P Icon Emblem',
+    sceneSlot: 'scene1',
     heroMode: 'p-icon',
-    formatNote: 'glTF 2.0 Binary · 4 Extruded Bevel Facets · ~20 KB',
+    formatNote: 'glTF 2.0 Binary · 5 Exact Facets · ~24 KB',
     description:
-      'Four-part beveled brushed-aluminum & chrome geometric P monogram compiled directly to binary glTF 2.0.',
+      'Brushed-aluminum five-facet geometric PrimeTech P emblem matching the master orthographic CAD spec with silver chamfers.',
   },
   {
     id: 'wordmark',
     filename: 'primetech-wordmark.glb',
     url: '/models/primetech-wordmark.glb',
     title: 'PRIMETECH 3D Wordmark & Divider',
+    sceneSlot: 'scene1',
     heroMode: 'wordmark',
-    formatNote: 'glTF 2.0 Binary · 31 Mesh Primitives · ~110 KB',
+    formatNote: 'glTF 2.0 Binary · Wide-Stance Bezier Glyphs · ~329 KB',
     description:
-      'Wide-stance architectural sans-serif PRIMETECH 3D lettering paired with the luminous hairline vertical separator bar.',
+      'Sleek wide-stance geometric PRIMETECH 3D lettering with rounded outer silhouettes, open counters, and metallic vertical divider.',
+  },
+  {
+    id: 'hero-chamber',
+    filename: 'primetech-hero-chamber.glb',
+    url: '/models/primetech-hero-chamber.glb',
+    title: 'Scene 01 Obsidian Chamber',
+    sceneSlot: 'scene1',
+    heroMode: 'full-hero',
+    formatNote: 'glTF 2.0 Binary · Stepped Bulkheads & Seams · ~28 KB',
+    description:
+      'Double-stepped obsidian bulkhead plates, lower-left chamfer sill, cantilevered upper-right knee overhang, and neutral silver-white edge seams.',
   },
   {
     id: 'plinth-tile',
     filename: 'primetech-plinth-tile.glb',
     url: '/models/primetech-plinth-tile.glb',
     title: 'Ceramic P Monolith Block',
-    heroMode: 'plinth-tile',
-    formatNote: 'glTF 2.0 Binary · Ceramic + Stainless Bezel · ~182 KB',
+    sceneSlot: 'scene2',
+    heroMode: 'full-hero',
+    formatNote: 'glTF 2.0 Binary · Satin Ceramic + Chrome Bevel · ~254 KB',
     description:
-      'Satin ceramic-white rounded emblem block with recessed obsidian geometric P relief and brushed stainless chamfers.',
+      'Satin ceramic-white rounded-square monolith with brushed silver perimeter bevel and recessed dark obsidian 5-facet P mark.',
   },
   {
-    id: 'hero-chamber',
-    filename: 'primetech-hero-chamber.glb',
-    url: '/models/primetech-hero-chamber.glb',
-    title: 'Obsidian Aperture Chamber',
-    heroMode: 'chamber',
-    formatNote: 'glTF 2.0 Binary · 6 Bulkhead Plates & Seams · ~20 KB',
+    id: 'sculptural-stage',
+    filename: 'primetech-sculptural-stage.glb',
+    url: '/models/primetech-sculptural-stage.glb',
+    title: 'Scene 02 Sculptural Gallery Stage',
+    sceneSlot: 'scene2',
+    heroMode: 'full-hero',
+    formatNote: 'glTF 2.0 Binary · Canopy, Wall Signature & Pedestal · ~753 KB',
     description:
-      'Stepped angular obsidian bulkhead armor plates, lower chamfer sill, cantilevered wing, and backlit white seam beams.',
+      'Sweeping curved dark anodized studio canopy, left-wall PRIMETECH™ metallic signature, lower-left foreground tier, and rounded monolith pedestal.',
   },
 ];
 
 export const SHOWCASE_WORLD_PRESETS: ShowcaseWorldPreset[] = [
   {
-    id: 'cadmesh-vault',
-    label: 'Full Hero 3D Chamber',
-    shortLabel: 'Full Hero Scene',
-    environmentId: 'primetech-vault',
+    id: 'arch-identity',
+    sceneSlot: 'scene1',
+    label: 'Scene 01 · Architectural Identity',
+    shortLabel: 'Full Scene 01',
+    environmentId: 'primetech-arch-identity',
     subjectId: 'primetech-cadmesh',
     heroAssetMode: 'full-hero',
     triggerMode: 'hover-reactive',
-    meta: 'World 01 · Real .glb Chamber + P Icon + PRIMETECH Wordmark · Wireframe Mountain Horizon',
+    meta: 'Scene 01 · Obsidian Architectural Chamber + 5-Facet P | PRIMETECH + Wireframe Terrain',
     description:
-      'Edge-to-edge architectural obsidian chamber loading all binary .glb logo & bulkhead assets above an animated wireframe mountain range.',
+      'Deep neutral obsidian and graphite chamber housing the brushed aluminum 5-facet P | PRIMETECH lockup above a faceted wireframe mountain horizon.',
   },
   {
     id: 'p-icon-glb',
-    label: 'P Icon Emblem (.glb)',
+    sceneSlot: 'scene1',
+    label: '5-Facet P Emblem (.glb)',
     shortLabel: 'P Icon .glb',
-    environmentId: 'primetech-vault',
+    environmentId: 'primetech-arch-identity',
     subjectId: 'primetech-cadmesh',
     heroAssetMode: 'p-icon',
     triggerMode: 'hover-reactive',
-    meta: 'Asset 01 · /models/primetech-p-icon.glb · Brushed Aluminum 4-Facet Extrusion',
+    meta: 'Asset 01 · /models/primetech-p-icon.glb · Five-Facet Brushed Aluminum Extrusion',
     description:
-      'Isolate the standalone binary .glb P emblem inside the lit obsidian spotlight aperture for 360° surface inspection.',
+      'Isolate the standalone five-facet P emblem inside Scene 01 for close inspection and 360° orbit.',
   },
   {
     id: 'wordmark-glb',
+    sceneSlot: 'scene1',
     label: 'PRIMETECH Wordmark (.glb)',
     shortLabel: 'Wordmark .glb',
-    environmentId: 'primetech-vault',
+    environmentId: 'primetech-arch-identity',
     subjectId: 'primetech-cadmesh',
     heroAssetMode: 'wordmark',
     triggerMode: 'hover-reactive',
-    meta: 'Asset 02 · /models/primetech-wordmark.glb · 3D Extruded Typography + Seam Bar',
+    meta: 'Asset 02 · /models/primetech-wordmark.glb · Wide-Stance Bezier Extruded Lockup',
     description:
-      'Inspect the standalone wide-stance 3D extruded PRIMETECH typographic lockup and luminous hairline divider.',
+      'Inspect the standalone wide-stance 3D extruded PRIMETECH typographic lockup and hairline vertical divider.',
   },
   {
-    id: 'plinth-vault',
-    label: 'Ceramic Monolith Block (.glb)',
-    shortLabel: 'Plinth Tile .glb',
-    environmentId: 'primetech-vault',
-    subjectId: 'primetech-plinth',
-    heroAssetMode: 'plinth-tile',
-    triggerMode: 'scroll-reactive',
-    meta: 'Asset 03 · /models/primetech-plinth-tile.glb · Satin Ceramic + Titanium Datum Tier',
-    description:
-      'Orbit the satin ceramic-white rounded monolith block with recessed obsidian P relief seated above an illuminated titanium tier.',
-  },
-  {
-    id: 'iamscene-circuit',
-    label: 'IAMScene Circuit World',
-    shortLabel: 'IAMScene Circuit',
-    environmentId: 'iamscene-circuit',
+    id: 'chamber-glb',
+    sceneSlot: 'scene1',
+    label: 'Bulkhead Chamber (.glb)',
+    shortLabel: 'Chamber .glb',
+    environmentId: 'primetech-arch-identity',
     subjectId: 'primetech-cadmesh',
-    heroAssetMode: 'full-hero',
+    heroAssetMode: 'chamber',
     triggerMode: 'hover-reactive',
-    meta: 'World 02 · iamscene.v1 · Hover & Scroll-Driven Circuit Traces',
+    meta: 'Asset 03 · /models/primetech-hero-chamber.glb · Bulkhead Framing & Wireframe Mesh',
     description:
-      'Real-time 3D implementation of IAMScene circuit worlds with concentric PCB traces, 36 instanced pulse packets, and arched loops.',
+      'Examine the angular obsidian architectural bulkhead framing, white chamfer seams, and wireframe terrain geometry.',
+  },
+  {
+    id: 'sculptural-emblem',
+    sceneSlot: 'scene2',
+    label: 'Scene 02 · Sculptural Emblem',
+    shortLabel: 'Full Scene 02',
+    environmentId: 'primetech-sculptural-emblem',
+    subjectId: 'primetech-plinth',
+    heroAssetMode: 'full-hero',
+    triggerMode: 'scroll-reactive',
+    meta: 'Scene 02 · Anodized Gallery Stage, Left-Wall PRIMETECH™ & Flush Ceramic Monolith',
+    description:
+      'Three-quarter architectural gallery featuring curved anodized wall seams, left-wall PRIMETECH™ signature, and a ceramic-white monolith seated flush on a rounded pedestal.',
   },
 ];
 
@@ -161,12 +186,12 @@ export interface PrimeTechShowcaseCallbacks {
     environmentId?: EnvironmentLevelId;
     tab?: ShowcaseTargetTab;
   }) => void;
-  onSelectHeroWorld: (world: ShowcaseWorldPreset) => void;
+  onActivateSceneSlot: (slot: ShowcaseSceneSlot, heroMode?: HeroAssetPreviewMode) => void;
   onLoadGlbInStudio: (asset: ShowcaseGlbModelAsset) => void;
   onToggleHeroExplode: (exploded: boolean) => void;
-  onResetHeroCamera: () => void;
+  onResetSceneCamera: (slot: ShowcaseSceneSlot) => void;
   onChangeHeroTrigger: (mode: SkyTriggerMode) => void;
-  onExportIamScene: () => void;
+  onExportIamScene: (slot: ShowcaseSceneSlot) => void;
   onVisibilityChange: (visible: boolean) => void;
 }
 
@@ -180,23 +205,39 @@ function esc(str: string): string {
     .replace(/"/g, '&quot;');
 }
 
+const BRAND_5FACET_SVG = `
+  <svg width="22" height="26" viewBox="-46 -54 92 108" fill="none" aria-hidden="true">
+    <polygon points="-19.61,-27.29 18.79,-27.29 13.24,-49.67 -3.27,-49.67" fill="#f8fafc"/>
+    <polygon points="17.97,-49.51 29.41,-13.73 26.47,-6.05 42.32,-6.05 42.32,-26.96" fill="#dbe3ee"/>
+    <polygon points="-13.4,21.73 8.82,21.73 39.22,-0.65 1.63,-0.65" fill="#cbd5e1"/>
+    <polygon points="-42.48,23.2 -19.77,-13.73 -19.77,-19.93 -42.48,-26.8" fill="#e2e8f0"/>
+    <polygon points="-18.79,-3.76 -41.34,32.03 -18.79,49.84" fill="#94a3b8"/>
+  </svg>
+`;
+
 /**
- * PrimeTech Full-Bleed 3D Hero World Showcase, Real .glb Model Asset Library,
- * SamScene Studio Case Study, and SQLite-Backed Architecture Ecosystem Inspector.
+ * PrimeTech Dual-Scene 3D Landing Page, Compiled .glb Asset Catalog,
+ * SamScene Studio Case Study, and SQLite-Backed Ecosystem Inspector.
  */
 export class PrimeTechShowcase {
   private callbacks: PrimeTechShowcaseCallbacks;
   private root: HTMLDivElement;
-  private heroViewportEl!: HTMLDivElement;
+  private scene1ViewportEl!: HTMLDivElement;
+  private scene2ViewportEl!: HTMLDivElement;
+  private scene1SnapshotEl!: HTMLImageElement;
+  private scene2SnapshotEl!: HTMLImageElement;
   private ecoPanelEl!: HTMLDivElement;
 
   private mobileMenuOpen = false;
   private isVisible = true;
-  private activeWorldId: ShowcaseWorldPresetId = 'cadmesh-vault';
+  private activeSlot: ShowcaseSceneSlot = 'scene1';
+  private activeScene1PresetId: ShowcaseWorldPresetId = 'arch-identity';
   private heroExploded = false;
   private heroTriggerMode: SkyTriggerMode = 'hover-reactive';
   private activeEcoTab: EcoInspectorTab = 'packages';
   private ecosystemData: PrimeTechEcosystemSnapshot | null = null;
+  private themeScenes: ThemeSceneDefinition[] = [];
+  private cmsDrawerOpen = false;
   private lumberResults: LumberLookupSpec[] = [];
   private activeLumberNominal = '2x4';
   private cleanupListeners: Array<() => void> = [];
@@ -205,17 +246,45 @@ export class PrimeTechShowcase {
     this.callbacks = callbacks;
     this.root = document.createElement('div');
     this.root.className = 'pt-showcase';
-    this.root.setAttribute('aria-label', 'PrimeTech Full-Bleed 3D Hero Scene & Case Study');
+    this.root.setAttribute('aria-label', 'PrimeTech Architectural 3D Identity & SamScene Case Study');
     this.render();
     document.body.appendChild(this.root);
-    this.heroViewportEl = this.root.querySelector('#ptHeroViewport') as HTMLDivElement;
+    this.scene1ViewportEl = this.root.querySelector('#ptScene1Viewport') as HTMLDivElement;
+    this.scene2ViewportEl = this.root.querySelector('#ptScene2Viewport') as HTMLDivElement;
+    this.scene1SnapshotEl = this.root.querySelector('#ptScene1Snapshot') as HTMLImageElement;
+    this.scene2SnapshotEl = this.root.querySelector('#ptScene2Snapshot') as HTMLImageElement;
     this.ecoPanelEl = this.root.querySelector('#ptEcoPanel') as HTMLDivElement;
     this.attachEvents();
+    this.setMountedCanvasSlot('scene1');
     void this.loadEcosystemData();
+    void this.loadThemeScenes();
   }
 
-  public getHeroViewportElement(): HTMLDivElement {
-    return this.heroViewportEl;
+  public getSceneViewportElement(slot: ShowcaseSceneSlot): HTMLDivElement {
+    return slot === 'scene2' ? this.scene2ViewportEl : this.scene1ViewportEl;
+  }
+
+  public getActiveSlot(): ShowcaseSceneSlot {
+    return this.activeSlot;
+  }
+
+  public setMountedCanvasSlot(slot: ShowcaseSceneSlot): void {
+    this.activeSlot = slot;
+    this.scene1ViewportEl?.classList.toggle('has-live-canvas', slot === 'scene1');
+    this.scene2ViewportEl?.classList.toggle('has-live-canvas', slot === 'scene2');
+    const s1Section = this.root.querySelector('#pt-scene-1');
+    const s2Section = this.root.querySelector('#pt-scene-2');
+    s1Section?.classList.toggle('is-live-scene', slot === 'scene1');
+    s2Section?.classList.toggle('is-live-scene', slot === 'scene2');
+  }
+
+  public setSceneSnapshot(slot: ShowcaseSceneSlot, dataUrl: string): void {
+    if (!dataUrl) return;
+    const img = slot === 'scene2' ? this.scene2SnapshotEl : this.scene1SnapshotEl;
+    if (img) {
+      img.src = dataUrl;
+      img.classList.add('is-ready');
+    }
   }
 
   public getScrollRoot(): HTMLDivElement {
@@ -223,14 +292,20 @@ export class PrimeTechShowcase {
   }
 
   public getActiveWorld(): ShowcaseWorldPreset {
+    if (this.activeSlot === 'scene2') {
+      return (
+        SHOWCASE_WORLD_PRESETS.find((w) => w.id === 'sculptural-emblem') ||
+        SHOWCASE_WORLD_PRESETS[SHOWCASE_WORLD_PRESETS.length - 1]
+      );
+    }
     return (
-      SHOWCASE_WORLD_PRESETS.find((w) => w.id === this.activeWorldId) ||
+      SHOWCASE_WORLD_PRESETS.find((w) => w.id === this.activeScene1PresetId) ||
       SHOWCASE_WORLD_PRESETS[0]
     );
   }
 
   public show(
-    scrollToSection?: 'overview' | 'models' | 'scenes' | 'case-study' | 'cad-builds'
+    scrollToSection?: 'scene-1' | 'scene-2' | 'models' | 'case-study' | 'cad-builds'
   ): void {
     const wasHidden = !this.isVisible;
     this.isVisible = true;
@@ -270,6 +345,34 @@ export class PrimeTechShowcase {
     if (toggle) toggle.setAttribute('aria-expanded', String(this.mobileMenuOpen));
   }
 
+  private async loadThemeScenes(): Promise<void> {
+    try {
+      const resp = await fetch('/api/theme-scenes');
+      if (!resp.ok) return;
+      const data = (await resp.json()) as { scenes?: ThemeSceneDefinition[] };
+      if (Array.isArray(data.scenes)) {
+        this.themeScenes = data.scenes;
+        this.renderCmsPreview();
+      }
+    } catch {
+      // Non-fatal fallback
+    }
+  }
+
+  private renderCmsPreview(): void {
+    const drawer = this.root.querySelector('#ptCmsJsonDrawer') as HTMLElement | null;
+    const pre = this.root.querySelector('#ptCmsJsonCode') as HTMLElement | null;
+    if (!drawer || !pre) return;
+    drawer.hidden = !this.cmsDrawerOpen;
+    if (this.cmsDrawerOpen) {
+      pre.textContent = JSON.stringify(
+        { scenes: this.themeScenes },
+        null,
+        2
+      );
+    }
+  }
+
   private async loadEcosystemData(): Promise<void> {
     try {
       const [eco, lumber] = await Promise.all([
@@ -288,13 +391,15 @@ export class PrimeTechShowcase {
     }
   }
 
-  private syncHeroWorldUI(): void {
-    const world = this.getActiveWorld();
-    const captionSub = this.root.querySelector('#ptHeroWorldMeta');
-    if (captionSub) captionSub.textContent = world.meta;
+  private syncScene1PresetUI(): void {
+    const preset =
+      SHOWCASE_WORLD_PRESETS.find((w) => w.id === this.activeScene1PresetId) ||
+      SHOWCASE_WORLD_PRESETS[0];
+    const metaEl = this.root.querySelector('#ptScene1Meta');
+    if (metaEl) metaEl.textContent = preset.meta;
 
-    this.root.querySelectorAll<HTMLButtonElement>('[data-hero-world]').forEach((btn) => {
-      btn.classList.toggle('is-active', btn.dataset.heroWorld === this.activeWorldId);
+    this.root.querySelectorAll<HTMLButtonElement>('[data-scene1-preset]').forEach((btn) => {
+      btn.classList.toggle('is-active', btn.dataset.scene1Preset === this.activeScene1PresetId);
     });
 
     const explodeBtn = this.root.querySelector('#ptHeroExplodeBtn') as HTMLButtonElement | null;
@@ -494,30 +599,27 @@ export class PrimeTechShowcase {
   }
 
   private render(): void {
-    const activeWorld = this.getActiveWorld();
+    const scene1Presets = SHOWCASE_WORLD_PRESETS.filter((w) => w.sceneSlot === 'scene1');
+    const activeScene1 = scene1Presets[0];
 
     this.root.innerHTML = `
       <header class="pt-topbar">
         <div class="pt-topbar-inner">
-          <a href="#pt-overview" class="pt-wordmark" data-pt-anchor="pt-overview">
-            <svg width="22" height="22" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-              <polygon points="5,13 10,5 19,5 16,13" fill="#f5f5f7"/>
-              <polygon points="20,6 27,13 22,20 17,13" fill="#cbd5e1"/>
-              <polygon points="12,18 23,18 19,23 9,23" fill="#94a3b8"/>
-              <polygon points="5,14 10,14 10,28 5,23" fill="#f5f5f7"/>
-            </svg>
+          <a href="#pt-scene-1" class="pt-wordmark" data-pt-anchor="pt-scene-1">
+            ${BRAND_5FACET_SVG}
             <span>PrimeTech</span>
           </a>
 
           <nav class="pt-nav" aria-label="Primary navigation">
-            <a href="#pt-overview" class="pt-nav-link" data-pt-anchor="pt-overview">Hero 3D</a>
+            <a href="#pt-scene-1" class="pt-nav-link" data-pt-anchor="pt-scene-1">Scene 01</a>
+            <a href="#pt-scene-2" class="pt-nav-link" data-pt-anchor="pt-scene-2">Scene 02</a>
             <a href="#pt-models" class="pt-nav-link" data-pt-anchor="pt-models">.glb Models</a>
             <a href="#pt-case-study" class="pt-nav-link" data-pt-anchor="pt-case-study">Case Study</a>
             <a href="#pt-cad-builds" class="pt-nav-link" data-pt-anchor="pt-cad-builds">Ecosystem</a>
           </nav>
 
           <div class="pt-topbar-actions">
-            <button type="button" class="pt-cta-primary pt-open-studio-btn" data-launch-studio>
+            <button type="button" class="pt-cta-primary pt-open-studio-btn" data-launch-studio="scene1">
               Open 3D Studio
             </button>
             <button
@@ -537,90 +639,152 @@ export class PrimeTechShowcase {
         </div>
 
         <div class="pt-mobile-drawer" id="ptMobileDrawer" hidden>
-          <a href="#pt-overview" class="pt-mobile-link" data-pt-anchor="pt-overview">Hero 3D</a>
+          <a href="#pt-scene-1" class="pt-mobile-link" data-pt-anchor="pt-scene-1">Scene 01 · Architectural Identity</a>
+          <a href="#pt-scene-2" class="pt-mobile-link" data-pt-anchor="pt-scene-2">Scene 02 · Sculptural Emblem</a>
           <a href="#pt-models" class="pt-mobile-link" data-pt-anchor="pt-models">.glb Models</a>
           <a href="#pt-case-study" class="pt-mobile-link" data-pt-anchor="pt-case-study">Case Study</a>
           <a href="#pt-cad-builds" class="pt-mobile-link" data-pt-anchor="pt-cad-builds">Ecosystem</a>
-          <button type="button" class="pt-cta-primary pt-mobile-studio-btn" data-launch-studio>
+          <button type="button" class="pt-cta-primary pt-mobile-studio-btn" data-launch-studio="scene1">
             Open 3D Studio
           </button>
         </div>
       </header>
 
       <main class="pt-main">
-        <!-- Edge-to-Edge Full-Bleed Live 3D Hero Full Scene -->
-        <section class="pt-hero-fullbleed" id="pt-overview">
-          <!-- 100vw x full-height WebGL Stage -->
+        <!-- SCENE ONE — PrimeTech Architectural Identity (Full-Bleed Interactive 3D Viewport) -->
+        <section class="pt-hero-fullbleed pt-scene-section" id="pt-scene-1">
           <div
-            class="pt-hero-stage"
-            id="ptHeroViewport"
-            aria-label="Full-bleed interactive Three.js 3D PrimeTech Hero Chamber"
-          ></div>
+            class="pt-scene-viewport"
+            id="ptScene1Viewport"
+            aria-label="Interactive Three.js Scene 01 — PrimeTech Architectural Identity"
+          >
+            <img
+              id="ptScene1Snapshot"
+              class="pt-scene-snapshot"
+              alt="PrimeTech Architectural Identity 3D chamber"
+            />
+          </div>
 
-          <!-- Directional Dark Scrim preserving readability without obscuring the upper 3D chamber -->
           <div class="pt-hero-scrim" aria-hidden="true"></div>
 
-          <!-- Editorial Overlay + Compact Frosted Control Dock (pointer-events pass-through except buttons) -->
           <div class="pt-hero-overlay">
             <div class="pt-container pt-hero-overlay-inner">
               <div class="pt-hero-headline-block">
-                <p class="pt-kicker" id="ptHeroWorldMeta">${esc(activeWorld.meta)}</p>
-                <h1 class="pt-hero-title">
-                  Full-bleed obsidian CAD chamber &amp; procedural .glb identity.
-                </h1>
+                <p class="pt-kicker" id="ptScene1Meta">${esc(activeScene1.meta)}</p>
+                <h1 class="pt-hero-title">Architectural Identity</h1>
                 <p class="pt-hero-sub">
-                  Drag to orbit 360° across real binary <code>.glb</code> aluminum geometry and live hover/scroll wireframe mountains.
+                  Real binary <code>.glb</code> stepped obsidian chamber, five-facet brushed aluminum P lockup, and procedural wireframe terrain. Drag to orbit 360°.
                 </p>
-                <div class="pt-hero-actions">
-                  <button type="button" class="pt-cta-primary" data-launch-studio>
-                    Enter Full 3D Studio
-                  </button>
-                  <button type="button" class="pt-cta-secondary" id="ptHeroDownloadIamScene">
-                    Export *.iamscene.json
-                  </button>
-                </div>
               </div>
 
               <div class="pt-hero-dock">
-                <div class="pt-world-tabs" role="tablist" aria-label="Select 3D Hero View">
-                  ${SHOWCASE_WORLD_PRESETS.map(
-                    (w) => `
+                <div class="pt-world-tabs" role="tablist" aria-label="Scene 01 Asset Focus">
+                  ${scene1Presets
+                    .map(
+                      (w) => `
                     <button
                       type="button"
                       role="tab"
-                      class="pt-world-tab ${w.id === activeWorld.id ? 'is-active' : ''}"
-                      data-hero-world="${w.id}"
+                      class="pt-world-tab ${w.id === activeScene1.id ? 'is-active' : ''}"
+                      data-scene1-preset="${w.id}"
                     >
                       ${esc(w.shortLabel)}
                     </button>`
-                  ).join('')}
+                    )
+                    .join('')}
                 </div>
 
                 <div class="pt-world-actions">
                   <button type="button" class="pt-world-action-btn" id="ptHeroExplodeBtn">Explode</button>
-                  <button type="button" class="pt-world-action-btn" id="ptHeroResetCamBtn">Reset Cam</button>
+                  <button type="button" class="pt-world-action-btn" data-reset-scene-cam="scene1">Reset Cam</button>
                   <select class="pt-world-select" id="ptHeroTriggerSelect" aria-label="World reactivity trigger mode">
                     <option value="hover-reactive">Hover</option>
                     <option value="scroll-reactive">Scroll</option>
                     <option value="orbit-time">Orbit</option>
                     <option value="audio-reactive">Audio</option>
                   </select>
+                  <button type="button" class="pt-world-action-btn" data-export-iamscene="scene1">Export *.iamscene</button>
+                  <button type="button" class="pt-cta-primary pt-dock-studio-btn" data-launch-studio="scene1">
+                    Open Scene 01 in Studio
+                  </button>
                 </div>
               </div>
             </div>
           </div>
         </section>
 
-        <!-- Real Binary .glb Model Assets Section -->
+        <!-- SCENE TWO — PrimeTech Sculptural Emblem (Full-Bleed 3/4 Gallery Stage) -->
+        <section class="pt-scene2-fullbleed pt-scene-section pt-border-top" id="pt-scene-2">
+          <div
+            class="pt-scene-viewport"
+            id="ptScene2Viewport"
+            aria-label="Interactive Three.js Scene 02 — PrimeTech Sculptural Emblem Monolith"
+          >
+            <img
+              id="ptScene2Snapshot"
+              class="pt-scene-snapshot"
+              alt="PrimeTech Sculptural Emblem ceramic monolith seated on obsidian pedestal"
+            />
+          </div>
+
+          <div class="pt-scene2-scrim" aria-hidden="true"></div>
+
+          <div class="pt-hero-overlay">
+            <div class="pt-container pt-hero-overlay-inner">
+              <div class="pt-hero-headline-block">
+                <p class="pt-kicker">Scene 02 · Sculptural Emblem · primetech-sculptural-stage.glb + primetech-plinth-tile.glb</p>
+                <h2 class="pt-hero-title">Sculptural Monolith Stage</h2>
+                <p class="pt-hero-sub">
+                  Curated dark anodized studio canopy, brushed-metal left-wall <code>PRIMETECH™</code> signature, and satin ceramic-white monolith seated flush on a rounded obsidian pedestal.
+                </p>
+              </div>
+
+              <div class="pt-hero-dock">
+                <div class="pt-world-tabs">
+                  <button type="button" class="pt-world-tab is-active" data-activate-slot="scene2">
+                    Orbit Live 3D Stage
+                  </button>
+                  <button type="button" class="pt-world-action-btn" data-reset-scene-cam="scene2">
+                    Reset Cam
+                  </button>
+                  <button type="button" class="pt-world-action-btn" id="ptToggleCmsJsonBtn">
+                    Inspect /api/theme-scenes
+                  </button>
+                </div>
+
+                <div class="pt-world-actions">
+                  <button type="button" class="pt-world-action-btn" data-export-iamscene="scene2">Export *.iamscene</button>
+                  <button type="button" class="pt-cta-primary pt-dock-studio-btn" data-launch-studio="scene2">
+                    Open Scene 02 in Studio
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div class="pt-cms-drawer" id="ptCmsJsonDrawer" hidden>
+          <div class="pt-container">
+            <div class="pt-cms-drawer-inner">
+              <div class="pt-cms-drawer-head">
+                <strong>CMS Registry Contract · <code>GET /api/theme-scenes</code></strong>
+                <button type="button" class="pt-world-action-btn" id="ptCloseCmsJsonBtn">Close</button>
+              </div>
+              <pre class="pt-cms-pre" id="ptCmsJsonCode"></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Compiled Binary .glb Model Assets Section -->
         <section class="pt-section pt-border-top" id="pt-models">
           <div class="pt-container">
             <div class="pt-section-head">
               <div>
                 <p class="pt-kicker">Compiled Binary glTF 2.0 Assets · /public/models/*.glb</p>
-                <h2 class="pt-h2">Every emblem, wordmark, and bulkhead plate exists as a real .glb file.</h2>
+                <h2 class="pt-h2">Both architectural scenes are built from real compiled .glb files.</h2>
               </div>
               <p class="pt-section-note">
-                Preview any individual <code>.glb</code> asset inside the full-bleed Hero 3D stage above, import it onto the SamScene workbench, or download the raw binary.
+                Preview any individual <code>.glb</code> asset inside Scene 01 or Scene 02 above, import it directly onto the SamScene workbench, or download the raw binary.
               </p>
             </div>
 
@@ -635,7 +799,7 @@ export class PrimeTechShowcase {
                     <div class="pt-glb-path"><code>${esc(asset.url)}</code></div>
                     <div class="pt-scene-actions">
                       <button type="button" class="pt-cta-primary" data-preview-glb="${esc(asset.id)}">
-                        Preview in Hero 3D
+                        Preview in ${asset.sceneSlot === 'scene2' ? 'Scene 02' : 'Scene 01'}
                       </button>
                       <button type="button" class="pt-cta-secondary" data-studio-glb="${esc(asset.id)}">
                         Load in Studio
@@ -664,23 +828,22 @@ export class PrimeTechShowcase {
                 <h2 class="pt-h2">SamScene Studio &amp; PrimeTech Spatial Engineering Stack</h2>
               </div>
               <p class="pt-section-note">
-                Designed and maintained by PrimeTech to unify architectural intelligence, deterministic FreeCAD/OCCT verification, and portable 3D scene composition.
+                Built by PrimeTech to unify architectural intelligence, deterministic FreeCAD/OCCT verification, and portable 3D scene composition across desktop and mobile.
               </p>
             </div>
 
-            <!-- Verifiable Architecture Metrics Strip -->
             <div class="pt-metrics-strip">
               <div class="pt-metric-cell">
-                <span class="pt-metric-val">4</span>
-                <span class="pt-metric-label">Compiled .glb Models &amp; Core Packages (v2.6.14)</span>
+                <span class="pt-metric-val">5</span>
+                <span class="pt-metric-label">Compiled Binary .glb Scene &amp; Emblem Assets</span>
+              </div>
+              <div class="pt-metric-cell">
+                <span class="pt-metric-val">2</span>
+                <span class="pt-metric-label">Dedicated CMS Theme Scenes (/api/theme-scenes)</span>
               </div>
               <div class="pt-metric-cell">
                 <span class="pt-metric-val">5 + 12</span>
                 <span class="pt-metric-label">Arch Intelligence MCP Tools &amp; AgentSam Skills</span>
-              </div>
-              <div class="pt-metric-cell">
-                <span class="pt-metric-val">7</span>
-                <span class="pt-metric-label">Live 3D Worlds (Vault, Circuit, Atrium, Orbital &amp; More)</span>
               </div>
               <div class="pt-metric-cell">
                 <span class="pt-metric-val">12</span>
@@ -693,9 +856,9 @@ export class PrimeTechShowcase {
                 <div class="pt-chapter-num">01</div>
                 <div class="pt-chapter-content">
                   <div class="pt-chapter-meta">Binary glTF 2.0 Pipeline · Single-Context WebGL</div>
-                  <h3 class="pt-h3">Real compiled .glb chamber, P icon &amp; wordmark in full-bleed WebGL</h3>
+                  <h3 class="pt-h3">Dual architectural 3D stages without duplicating WebGL contexts</h3>
                   <p class="pt-copy">
-                    Every PrimeTech emblem facet, wordmark letterform, ceramic relief monolith, and angular bulkhead baffle is compiled to standard binary <code>.glb</code> assets loaded via <code>GLTFLoader</code>. Rather than duplicating WebGL contexts, the renderer canvas transfers seamlessly between the full-bleed Hero stage and the multi-panel SamScene editor.
+                    Every PrimeTech five-facet emblem, wide-stance Bezier wordmark, ceramic monolith, and studio canopy is compiled to binary <code>.glb</code> assets loaded via <code>GLTFLoader</code>. A single WebGL renderer dynamically switches between Scene 01, Scene 02, and the full SamScene Studio while keeping off-screen sections crisp with live-captured WebGL snapshots.
                   </p>
                 </div>
               </article>
@@ -704,7 +867,7 @@ export class PrimeTechShowcase {
                 <div class="pt-chapter-num">02</div>
                 <div class="pt-chapter-content">
                   <div class="pt-chapter-meta">Architectural Intelligence MCP · AWC · NCS · IFC 4.3 · IDS</div>
-                  <h3 class="pt-h3">Verified dimension lookup &amp; deterministic build procedures</h3>
+                  <h3 class="pt-h3">Verified dimension lookup &amp; deterministic CAD build procedures</h3>
                   <p class="pt-copy">
                     PrimeTech pairs <code>architectural-intelligence</code> (nominal-to-actual lumber checks, wall/floor/roof assembly thickness summation, CAD layer conventions, and IDS validation) with <code>primetech-procedures</code> (<code>validateProcedureManifest()</code>, SHA-256 receipt logging, and OCCT motor end-plate validation).
                   </p>
@@ -714,10 +877,10 @@ export class PrimeTechShowcase {
               <article class="pt-chapter">
                 <div class="pt-chapter-num">03</div>
                 <div class="pt-chapter-content">
-                  <div class="pt-chapter-meta">Portable Scene Graph · iamscene.v1 · No Executable JS</div>
-                  <h3 class="pt-h3">Declarative *.iamscene.json scenes &amp; circuit hover/scroll mechanics</h3>
+                  <div class="pt-chapter-meta">Portable Scene Graph · iamscene.v1 · /api/theme-scenes</div>
+                  <h3 class="pt-h3">Declarative *.iamscene.json scenes &amp; CMS scene contracts</h3>
                   <p class="pt-copy">
-                    Every world scene uses a right-handed Y-up metric coordinate space serialized cleanly as <code>*.iamscene.json</code>. Pointer coordinates and scroll depth feed directly into terrain mountain vertex displacement, starfield/galaxy shaders, and instanced PCB signal pulses in <code>iamscene-circuit</code>.
+                    Both showcase stages use a right-handed Y-up metric coordinate space serialized as <code>*.iamscene.json</code> and served via <code>/api/theme-scenes</code> and SQLite <code>studio_templates</code> (<code>cms_scene_section</code>), complete with frustum-calibrated FOV presets and neutral obsidian lighting overrides.
                   </p>
                 </div>
               </article>
@@ -728,7 +891,7 @@ export class PrimeTechShowcase {
                   <div class="pt-chapter-meta">BIM, Video Keyframes &amp; SamSpeak · Gemini 3.8 Flash TTS</div>
                   <h3 class="pt-h3">Automated video keyframe extraction &amp; synchronized spoken direction</h3>
                   <p class="pt-copy">
-                    Drop IFC building models, GLB animations, or reference videos into the studio to extract camera trajectories, PBR textures, and character rigs stored in SQLite (<code>studio_templates</code>), paired with multi-speaker SamSpeak audio driving FFT spectrum feedback.
+                    Drop IFC building models, GLB animations, or reference videos into the SamScene workbench to extract camera trajectories, PBR textures, and character rigs stored in SQLite (<code>studio_templates</code>), paired with multi-speaker SamSpeak audio driving FFT spectrum feedback.
                   </p>
                 </div>
               </article>
@@ -768,25 +931,26 @@ export class PrimeTechShowcase {
             <span>Owner &amp; creator of SamScene 3D Studio, PrimeTech Procedures &amp; IAMScene.</span>
           </div>
           <div class="pt-footer-links">
-            <a href="#pt-overview" data-pt-anchor="pt-overview">Hero 3D</a>
+            <a href="#pt-scene-1" data-pt-anchor="pt-scene-1">Scene 01</a>
+            <a href="#pt-scene-2" data-pt-anchor="pt-scene-2">Scene 02</a>
             <a href="#pt-models" data-pt-anchor="pt-models">.glb Models</a>
             <a href="#pt-case-study" data-pt-anchor="pt-case-study">Case Study</a>
-            <button type="button" class="pt-footer-studio-btn" data-launch-studio>Open 3D Studio</button>
+            <button type="button" class="pt-footer-studio-btn" data-launch-studio="scene1">Open 3D Studio</button>
           </div>
         </div>
       </footer>
     `;
   }
 
-  private selectWorld(worldId: ShowcaseWorldPresetId, scrollToTop = false): void {
-    const preset = SHOWCASE_WORLD_PRESETS.find((w) => w.id === worldId);
+  private selectScene1Preset(presetId: ShowcaseWorldPresetId, scrollToScene = false): void {
+    const preset = SHOWCASE_WORLD_PRESETS.find((w) => w.id === presetId);
     if (!preset) return;
-    this.activeWorldId = preset.id;
+    this.activeScene1PresetId = preset.id;
     this.heroTriggerMode = preset.triggerMode;
-    this.syncHeroWorldUI();
-    this.callbacks.onSelectHeroWorld(preset);
-    if (scrollToTop) {
-      this.root.scrollTo({ top: 0, behavior: 'smooth' });
+    this.syncScene1PresetUI();
+    this.callbacks.onActivateSceneSlot('scene1', preset.heroAssetMode);
+    if (scrollToScene) {
+      this.root.querySelector('#pt-scene-1')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   }
 
@@ -807,6 +971,11 @@ export class PrimeTechShowcase {
           this.root
             .querySelector(`#${targetId}`)
             ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          if (targetId === 'pt-scene-1') {
+            this.callbacks.onActivateSceneSlot('scene1');
+          } else if (targetId === 'pt-scene-2') {
+            this.callbacks.onActivateSceneSlot('scene2');
+          }
         }
       };
       el.addEventListener('click', handler);
@@ -815,21 +984,55 @@ export class PrimeTechShowcase {
 
     this.root.querySelectorAll<HTMLButtonElement>('[data-launch-studio]').forEach((btn) => {
       const handler = () => {
-        const w = this.getActiveWorld();
+        const slot = (btn.dataset.launchStudio as ShowcaseSceneSlot) || this.activeSlot;
+        const preset =
+          slot === 'scene2'
+            ? SHOWCASE_WORLD_PRESETS.find((w) => w.id === 'sculptural-emblem')!
+            : SHOWCASE_WORLD_PRESETS.find((w) => w.id === this.activeScene1PresetId) ||
+              SHOWCASE_WORLD_PRESETS[0];
         this.callbacks.onOpenStudio({
-          worldId: w.id,
-          subjectId: w.subjectId,
-          environmentId: w.environmentId,
+          worldId: preset.id,
+          subjectId: preset.subjectId,
+          environmentId: preset.environmentId,
         });
       };
       btn.addEventListener('click', handler);
       this.cleanupListeners.push(() => btn.removeEventListener('click', handler));
     });
 
-    this.root.querySelectorAll<HTMLButtonElement>('[data-hero-world]').forEach((btn) => {
+    this.root.querySelectorAll<HTMLButtonElement>('[data-scene1-preset]').forEach((btn) => {
       const handler = () => {
-        const worldId = btn.dataset.heroWorld as ShowcaseWorldPresetId;
-        if (worldId) this.selectWorld(worldId, false);
+        const id = btn.dataset.scene1Preset as ShowcaseWorldPresetId;
+        if (id) this.selectScene1Preset(id, false);
+      };
+      btn.addEventListener('click', handler);
+      this.cleanupListeners.push(() => btn.removeEventListener('click', handler));
+    });
+
+    this.root.querySelectorAll<HTMLButtonElement>('[data-activate-slot]').forEach((btn) => {
+      const handler = () => {
+        const slot = btn.dataset.activateSlot as ShowcaseSceneSlot;
+        if (slot) {
+          this.callbacks.onActivateSceneSlot(slot, 'full-hero');
+        }
+      };
+      btn.addEventListener('click', handler);
+      this.cleanupListeners.push(() => btn.removeEventListener('click', handler));
+    });
+
+    this.root.querySelectorAll<HTMLButtonElement>('[data-reset-scene-cam]').forEach((btn) => {
+      const handler = () => {
+        const slot = (btn.dataset.resetSceneCam as ShowcaseSceneSlot) || 'scene1';
+        this.callbacks.onResetSceneCamera(slot);
+      };
+      btn.addEventListener('click', handler);
+      this.cleanupListeners.push(() => btn.removeEventListener('click', handler));
+    });
+
+    this.root.querySelectorAll<HTMLButtonElement>('[data-export-iamscene]').forEach((btn) => {
+      const handler = () => {
+        const slot = (btn.dataset.exportIamscene as ShowcaseSceneSlot) || this.activeSlot;
+        this.callbacks.onExportIamScene(slot);
       };
       btn.addEventListener('click', handler);
       this.cleanupListeners.push(() => btn.removeEventListener('click', handler));
@@ -838,14 +1041,19 @@ export class PrimeTechShowcase {
     this.root.querySelectorAll<HTMLButtonElement>('[data-preview-glb]').forEach((btn) => {
       const handler = () => {
         const assetId = btn.dataset.previewGlb;
-        const modeMap: Record<string, ShowcaseWorldPresetId> = {
-          'p-icon': 'p-icon-glb',
-          wordmark: 'wordmark-glb',
-          'plinth-tile': 'plinth-vault',
-          'hero-chamber': 'cadmesh-vault',
-        };
-        const worldId = (assetId && modeMap[assetId]) || 'cadmesh-vault';
-        this.selectWorld(worldId, true);
+        const asset = SHOWCASE_GLB_ASSETS.find((a) => a.id === assetId);
+        if (!asset) return;
+        if (asset.sceneSlot === 'scene2') {
+          this.callbacks.onActivateSceneSlot('scene2', 'full-hero');
+          this.root.querySelector('#pt-scene-2')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else {
+          const modeMap: Record<string, ShowcaseWorldPresetId> = {
+            'p-icon': 'p-icon-glb',
+            wordmark: 'wordmark-glb',
+            'hero-chamber': 'arch-identity',
+          };
+          this.selectScene1Preset(modeMap[asset.id] || 'arch-identity', true);
+        }
       };
       btn.addEventListener('click', handler);
       this.cleanupListeners.push(() => btn.removeEventListener('click', handler));
@@ -866,13 +1074,9 @@ export class PrimeTechShowcase {
     const explodeBtn = this.root.querySelector('#ptHeroExplodeBtn');
     explodeBtn?.addEventListener('click', () => {
       this.heroExploded = !this.heroExploded;
-      this.syncHeroWorldUI();
+      this.syncScene1PresetUI();
+      this.callbacks.onActivateSceneSlot('scene1');
       this.callbacks.onToggleHeroExplode(this.heroExploded);
-    });
-
-    const resetBtn = this.root.querySelector('#ptHeroResetCamBtn');
-    resetBtn?.addEventListener('click', () => {
-      this.callbacks.onResetHeroCamera();
     });
 
     const trigSelect = this.root.querySelector('#ptHeroTriggerSelect') as HTMLSelectElement | null;
@@ -881,8 +1085,14 @@ export class PrimeTechShowcase {
       this.callbacks.onChangeHeroTrigger(this.heroTriggerMode);
     });
 
-    this.root.querySelector('#ptHeroDownloadIamScene')?.addEventListener('click', () => {
-      this.callbacks.onExportIamScene();
+    this.root.querySelector('#ptToggleCmsJsonBtn')?.addEventListener('click', () => {
+      this.cmsDrawerOpen = !this.cmsDrawerOpen;
+      this.renderCmsPreview();
+    });
+
+    this.root.querySelector('#ptCloseCmsJsonBtn')?.addEventListener('click', () => {
+      this.cmsDrawerOpen = false;
+      this.renderCmsPreview();
     });
 
     this.root.querySelectorAll<HTMLButtonElement>('[data-eco-tab]').forEach((btn) => {

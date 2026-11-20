@@ -64,9 +64,21 @@ import { MiniAgentSam } from './web/MiniAgentSam.ts';
 import {
   PrimeTechShowcase,
   type ShowcaseGlbModelAsset,
+  type ShowcaseSceneSlot,
   type ShowcaseTargetTab,
-  type ShowcaseWorldPreset,
 } from './web/PrimeTechShowcase.ts';
+
+const SCENE1_CAM = {
+  position: [0.0, 1.54, 2.72] as [number, number, number],
+  target: [0.0, 1.48, -3.1] as [number, number, number],
+  fov: 38,
+};
+
+const SCENE2_CAM = {
+  position: [0.35, 1.56, 0.92] as [number, number, number],
+  target: [0.02, 1.24, -2.65] as [number, number, number],
+  fov: 35,
+};
 
 const _raycaster = new THREE.Raycaster();
 const _ndc = new THREE.Vector2();
@@ -111,8 +123,9 @@ export class StudioApp extends xb.Script {
 
   private activeSubjectId: StudioSubjectId = 'primetech-cadmesh';
   private activeFinishId: FinishId = 'titanium';
-  private activeEnvironmentId: EnvironmentLevelId = 'primetech-vault';
+  private activeEnvironmentId: EnvironmentLevelId = 'primetech-arch-identity';
   private activeMoodId: AtmosphereMoodId = 'noir';
+  private activeShowcaseSlot: ShowcaseSceneSlot = 'scene1';
   private activeBrushPresetId = 'pbr-brushed-gold';
   private activeDragPbrId: string | null = null;
   private mediaAssets: StudioMediaAsset[] = [];
@@ -177,6 +190,19 @@ export class StudioApp extends xb.Script {
     this.attachCanvasInteractions();
     this.attachGlobalDropAndKeys();
 
+    // Preload both Scene 01 & Scene 02 GLB worlds and capture snapshots when loaded
+    this.stage.preloadEnvironmentLevel('primetech-arch-identity');
+    this.stage.preloadEnvironmentLevel('primetech-sculptural-emblem');
+    const unsubReady = this.stage.onEnvironmentAssetsReady((readyEnvId) => {
+      if (!this.showcase?.isOpen()) return;
+      if (readyEnvId === 'primetech-sculptural-emblem') {
+        this.captureShowcaseSlotSnapshot('scene2');
+      } else if (readyEnvId === 'primetech-arch-identity') {
+        this.captureShowcaseSlotSnapshot('scene1');
+      }
+    });
+    this.cleanupListeners.push(unsubReady);
+
     // Restore persisted active project if available, otherwise establish Undo baseline
     const saved = this.projectService.loadActiveFromStorage();
     if (saved) {
@@ -187,7 +213,12 @@ export class StudioApp extends xb.Script {
       this.stage.setSubject(this.activeSubjectId);
       this.stage.setFinish(this.activeFinishId);
       const initialSky = this.stage.setSkyTriggerMode('hover-reactive');
-      this.cameraDirector.goToShot('establishing', 'cut');
+      this.cameraDirector.goToPresetCamera(
+        SCENE1_CAM.position,
+        SCENE1_CAM.target,
+        SCENE1_CAM.fov,
+        'cut'
+      );
       this.miniSam.syncEnvironment(this.activeEnvironmentId);
       this.miniSam.syncSubject(this.activeSubjectId);
       this.miniSam.syncFinish(this.activeFinishId);
@@ -197,8 +228,7 @@ export class StudioApp extends xb.Script {
       this.projectService.replaceBaseline(this.captureManifest());
     }
     if (this.showcase.isOpen()) {
-      this.applyShowcaseWorld(this.showcase.getActiveWorld());
-      this.cameraDirector.goToShot('establishing', 'cut');
+      this.activateShowcaseSlot('scene1', 'full-hero', true);
     }
     this.miniSam.syncSavedSlots(this.projectService.listSavedSlots());
     this.miniSam.syncHistoryState(
@@ -244,7 +274,7 @@ export class StudioApp extends xb.Script {
 
   private getActiveViewportHost(): HTMLElement {
     if (this.showcase?.isOpen()) {
-      return this.showcase.getHeroViewportElement();
+      return this.showcase.getSceneViewportElement(this.activeShowcaseSlot);
     }
     return this.miniSam.getViewportElement();
   }
@@ -553,15 +583,18 @@ export class StudioApp extends xb.Script {
   private setupPrimeTechShowcase(): void {
     this.showcase = new PrimeTechShowcase({
       onOpenStudio: (options) => this.handleLaunchFromShowcase(options),
-      onSelectHeroWorld: (world) => this.applyShowcaseWorld(world),
+      onActivateSceneSlot: (slot, heroMode) => {
+        const shouldReset = this.activeShowcaseSlot !== slot;
+        this.activateShowcaseSlot(slot, heroMode, shouldReset);
+      },
       onLoadGlbInStudio: (asset) => void this.handleLoadGlbFromShowcase(asset),
       onToggleHeroExplode: (exploded) => {
         this.stage.setExplodeAmount(exploded ? 0.65 : 0);
         this.miniSam.syncStageDynamics(exploded ? 0.65 : 0, this.stage.getSpinSpeed());
         this.audioEngine.playStudioCue('select');
       },
-      onResetHeroCamera: () => {
-        this.cameraDirector.goToShot('establishing', 'glide');
+      onResetSceneCamera: (slot) => {
+        this.activateShowcaseSlot(slot, undefined, true);
         this.audioEngine.playStudioCue('switch');
       },
       onChangeHeroTrigger: (mode) => {
@@ -569,12 +602,58 @@ export class StudioApp extends xb.Script {
         this.miniSam.syncSkyConfig(cfg);
         this.audioEngine.playStudioCue('select');
       },
-      onExportIamScene: () => this.handleExportIamScene(),
-      onVisibilityChange: () => {
+      onExportIamScene: (slot) => {
+        if (this.activeShowcaseSlot !== slot) {
+          this.activateShowcaseSlot(slot, undefined, true);
+        }
+        this.handleExportIamScene();
+      },
+      onVisibilityChange: (visible) => {
         this.syncCanvasMount();
+        if (visible) {
+          this.activateShowcaseSlot(this.activeShowcaseSlot, 'full-hero', true);
+        }
       },
     });
     this.showcase.show();
+
+    const s1Viewport = this.showcase.getSceneViewportElement('scene1');
+    const s2Viewport = this.showcase.getSceneViewportElement('scene2');
+
+    const activateOnInteract = (slot: ShowcaseSceneSlot) => () => {
+      if (!this.showcase.isOpen()) return;
+      if (this.activeShowcaseSlot !== slot) {
+        this.activateShowcaseSlot(slot, 'full-hero', true);
+      }
+    };
+
+    const s1Enter = activateOnInteract('scene1');
+    const s2Enter = activateOnInteract('scene2');
+    s1Viewport?.addEventListener('pointerdown', s1Enter);
+    s2Viewport?.addEventListener('pointerdown', s2Enter);
+
+    if (typeof IntersectionObserver !== 'undefined') {
+      const scrollObserver = new IntersectionObserver(
+        (entries) => {
+          if (!this.showcase.isOpen()) return;
+          for (const entry of entries) {
+            if (!entry.isIntersecting || entry.intersectionRatio < 0.58) continue;
+            const slot: ShowcaseSceneSlot =
+              entry.target.id === 'ptScene2Viewport' ? 'scene2' : 'scene1';
+            if (this.activeShowcaseSlot !== slot) {
+              this.activateShowcaseSlot(slot, 'full-hero', true);
+            }
+          }
+        },
+        {
+          root: this.showcase.getScrollRoot(),
+          threshold: [0.58],
+        }
+      );
+      if (s1Viewport) scrollObserver.observe(s1Viewport);
+      if (s2Viewport) scrollObserver.observe(s2Viewport);
+      this.cleanupListeners.push(() => scrollObserver.disconnect());
+    }
 
     const scrollRoot = this.showcase.getScrollRoot();
     const onShowcaseScroll = () => {
@@ -589,7 +668,136 @@ export class StudioApp extends xb.Script {
       }
     };
     scrollRoot.addEventListener('scroll', onShowcaseScroll, { passive: true });
-    this.cleanupListeners.push(() => scrollRoot.removeEventListener('scroll', onShowcaseScroll));
+    this.cleanupListeners.push(() => {
+      s1Viewport?.removeEventListener('pointerdown', s1Enter);
+      s2Viewport?.removeEventListener('pointerdown', s2Enter);
+      scrollRoot.removeEventListener('scroll', onShowcaseScroll);
+    });
+  }
+
+  private renderWebglOnceIntoHost(host: HTMLElement): string | null {
+    const renderer = xb.core.renderer as THREE.WebGLRenderer | undefined;
+    const camera = xb.core.camera as THREE.PerspectiveCamera | undefined;
+    if (!renderer || !camera || !xb.core.scene) return null;
+
+    const w = Math.max(64, Math.floor(host.clientWidth || 1280));
+    const h = Math.max(64, Math.floor(host.clientHeight || 720));
+    if ('aspect' in camera) {
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    renderer.setSize(w, h, false);
+    this.stage.updateStage(xb.core.elapsedTime || 0, 0.016, this.audioEngine.sampleLevels(0.016));
+    renderer.render(xb.core.scene, camera);
+    try {
+      return renderer.domElement.toDataURL('image/webp', 0.92);
+    } catch {
+      return null;
+    }
+  }
+
+  private captureShowcaseSlotSnapshot(slot: ShowcaseSceneSlot): void {
+    if (!this.showcase?.isOpen()) return;
+    const prevSlot = this.activeShowcaseSlot;
+    const prevEnvId = this.activeEnvironmentId;
+    const targetEnv: EnvironmentLevelId =
+      slot === 'scene2' ? 'primetech-sculptural-emblem' : 'primetech-arch-identity';
+    const targetCam = slot === 'scene2' ? SCENE2_CAM : SCENE1_CAM;
+    const host = this.showcase.getSceneViewportElement(slot);
+    if (!host) return;
+
+    const camBefore = this.cameraDirector.getCameraState();
+    const camera = xb.core.camera as THREE.PerspectiveCamera | undefined;
+    const fovBefore = camera?.fov ?? 38;
+
+    this.stage.setEnvironmentLevel(targetEnv);
+    this.stage.setHeroPresentationMode(true, 'full-hero');
+    this.cameraDirector.goToPresetCamera(
+      targetCam.position,
+      targetCam.target,
+      targetCam.fov,
+      'cut'
+    );
+    const dataUrl = this.renderWebglOnceIntoHost(host);
+    if (dataUrl) {
+      this.showcase.setSceneSnapshot(slot, dataUrl);
+    }
+
+    // Restore currently mounted showcase slot silently
+    if (prevSlot !== slot) {
+      const restoreHost = this.showcase.getSceneViewportElement(prevSlot);
+      this.stage.setEnvironmentLevel(prevEnvId);
+      this.stage.setHeroPresentationMode(true, this.showcase.getActiveWorld().heroAssetMode);
+      this.cameraDirector.goToPresetCamera(
+        camBefore.position,
+        camBefore.target,
+        fovBefore,
+        'cut'
+      );
+      if (restoreHost) {
+        this.renderWebglOnceIntoHost(restoreHost);
+      }
+    }
+  }
+
+  private activateShowcaseSlot(
+    slot: ShowcaseSceneSlot,
+    heroMode?: import('./studio/environmentLevels.ts').HeroAssetPreviewMode,
+    resetCamera = false
+  ): void {
+    const prevSlot = this.activeShowcaseSlot;
+    const targetEnv: EnvironmentLevelId =
+      slot === 'scene2' ? 'primetech-sculptural-emblem' : 'primetech-arch-identity';
+    const targetSubject: StudioSubjectId =
+      slot === 'scene2' ? 'primetech-plinth' : 'primetech-cadmesh';
+    const targetCam = slot === 'scene2' ? SCENE2_CAM : SCENE1_CAM;
+
+    // Preserve a crisp snapshot of the outgoing slot before transferring the single <canvas>
+    if (prevSlot !== slot && xb.core.renderer && xb.core.camera && xb.core.scene) {
+      const prevHost = this.showcase.getSceneViewportElement(prevSlot);
+      if (prevHost && prevHost.clientWidth > 0 && prevHost.clientHeight > 0) {
+        const snap = this.renderWebglOnceIntoHost(prevHost);
+        if (snap) this.showcase.setSceneSnapshot(prevSlot, snap);
+      }
+    }
+
+    this.activeShowcaseSlot = slot;
+    this.showcase.setMountedCanvasSlot(slot);
+
+    this.activeEnvironmentId = targetEnv;
+    this.stage.setEnvironmentLevel(targetEnv);
+    this.stage.setHeroPresentationMode(
+      true,
+      heroMode || (slot === 'scene2' ? 'full-hero' : this.showcase.getActiveWorld().heroAssetMode)
+    );
+    this.miniSam.syncEnvironment(targetEnv);
+
+    const envPreset = ENVIRONMENT_LEVEL_MAP[targetEnv];
+    const nextMood = envPreset?.defaultMood || (slot === 'scene2' ? 'studio' : 'noir');
+    this.activeMoodId = nextMood;
+    this.stage.setAtmosphereMood(nextMood, true);
+    this.miniSam.syncMood(nextMood);
+    this.miniSam.syncLightingState(this.stage.getLightingState());
+
+    this.activeSubjectId = targetSubject;
+    this.stage.setSubject(targetSubject);
+    this.miniSam.syncSubject(targetSubject);
+    this.handleSelectFinish(slot === 'scene2' ? 'titanium' : 'obsidian');
+
+    if (prevSlot !== slot || resetCamera) {
+      this.cameraDirector.goToPresetCamera(
+        targetCam.position,
+        targetCam.target,
+        targetCam.fov,
+        'cut'
+      );
+    }
+
+    this.syncCanvasMount();
+    const activeHost = this.showcase.getSceneViewportElement(slot);
+    if (activeHost) {
+      this.renderWebglOnceIntoHost(activeHost);
+    }
   }
 
   private async handleLoadGlbFromShowcase(asset: ShowcaseGlbModelAsset): Promise<void> {
@@ -617,35 +825,6 @@ export class StudioApp extends xb.Script {
     }
   }
 
-  private applyShowcaseWorld(world: ShowcaseWorldPreset): void {
-    this.activeEnvironmentId = world.environmentId;
-    this.stage.setEnvironmentLevel(world.environmentId);
-    this.stage.setHeroPresentationMode(Boolean(this.showcase?.isOpen()), world.heroAssetMode);
-    this.miniSam.syncEnvironment(world.environmentId);
-
-    const envPreset = ENVIRONMENT_LEVEL_MAP[world.environmentId];
-    const nextMood = envPreset?.defaultMood || 'noir';
-    this.activeMoodId = nextMood;
-    this.stage.setAtmosphereMood(nextMood);
-    this.miniSam.syncMood(nextMood);
-    this.miniSam.syncLightingState(this.stage.getLightingState());
-
-    this.handleSelectSubject(world.subjectId);
-    const nextFinish: FinishId =
-      world.subjectId === 'primetech-plinth'
-        ? 'titanium'
-        : world.environmentId === 'iamscene-circuit'
-          ? 'iridescent'
-          : 'obsidian';
-    this.handleSelectFinish(nextFinish);
-
-    const skyCfg = this.stage.setSkyTriggerMode(world.triggerMode);
-    this.miniSam.syncSkyConfig(skyCfg);
-
-    this.cameraDirector.goToShot('establishing', 'glide');
-    this.audioEngine.playStudioCue('switch');
-  }
-
   private handleLaunchFromShowcase(options?: {
     worldId?: string;
     subjectId?: StudioSubjectId;
@@ -655,18 +834,26 @@ export class StudioApp extends xb.Script {
     this.showcase.hide();
     this.syncCanvasMount();
 
-    const envId: EnvironmentLevelId = options?.environmentId || 'primetech-vault';
+    const envId: EnvironmentLevelId =
+      options?.environmentId ||
+      (this.activeShowcaseSlot === 'scene2'
+        ? 'primetech-sculptural-emblem'
+        : 'primetech-arch-identity');
+
+    const camPreset =
+      envId === 'primetech-sculptural-emblem' ? SCENE2_CAM : SCENE1_CAM;
+
+    this.activeEnvironmentId = envId;
+    this.stage.setEnvironmentLevel(envId);
+    this.miniSam.syncEnvironment(envId);
+
+    const mood = ENVIRONMENT_LEVEL_MAP[envId]?.defaultMood || 'noir';
+    this.activeMoodId = mood;
+    this.stage.setAtmosphereMood(mood, true);
+    this.miniSam.syncMood(mood);
+    this.miniSam.syncLightingState(this.stage.getLightingState());
+
     if (options?.subjectId && SUBJECT_MAP[options.subjectId]) {
-      this.activeEnvironmentId = envId;
-      this.stage.setEnvironmentLevel(envId);
-      this.miniSam.syncEnvironment(envId);
-
-      const mood = ENVIRONMENT_LEVEL_MAP[envId]?.defaultMood || 'noir';
-      this.activeMoodId = mood;
-      this.stage.setAtmosphereMood(mood, true);
-      this.miniSam.syncMood(mood);
-      this.miniSam.syncLightingState(this.stage.getLightingState());
-
       this.handleSelectSubject(options.subjectId);
       const nextFinish: FinishId =
         options.subjectId === 'primetech-plinth'
@@ -675,14 +862,17 @@ export class StudioApp extends xb.Script {
             ? 'iridescent'
             : 'obsidian';
       this.handleSelectFinish(nextFinish);
-
-      this.cameraDirector.goToShot('hero', 'glide');
-      this.miniSam.showToast(
-        `Loaded ${SUBJECT_MAP[options.subjectId].label} inside ${
-          ENVIRONMENT_LEVEL_MAP[envId]?.label || 'PrimeTech Vault'
-        }.`
-      );
     }
+
+    this.cameraDirector.goToPresetCamera(
+      camPreset.position,
+      camPreset.target,
+      camPreset.fov,
+      'glide'
+    );
+    this.miniSam.showToast(
+      `Opened ${ENVIRONMENT_LEVEL_MAP[envId]?.label || 'PrimeTech 3D Scene'} in SamScene Studio.`
+    );
 
     if (options?.tab) {
       const expand = window.innerWidth > 720;

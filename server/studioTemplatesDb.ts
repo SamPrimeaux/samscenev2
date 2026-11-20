@@ -2,6 +2,77 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import type { ThemeSceneDefinition } from '../src/types.ts';
+
+export const PRIMETECH_THEME_SCENES: ThemeSceneDefinition[] = [
+  {
+    id: 'primetech-scene-01-arch-identity',
+    slug: 'primetech-architectural-identity',
+    title: 'PrimeTech Architectural Identity',
+    subtitle: 'Scene 01 · Obsidian Bulkhead Chamber, 5-Facet Brushed Aluminum P | PRIMETECH & Wireframe Mountains',
+    environmentId: 'primetech-arch-identity',
+    subjectId: 'primetech-cadmesh',
+    rendererKey: 'threejs.samscene.primetech-chamber.v2',
+    assetUrls: [
+      '/models/primetech-hero-chamber.glb',
+      '/models/primetech-p-icon.glb',
+      '/models/primetech-wordmark.glb',
+    ],
+    camera: {
+      position: [0.0, 1.54, 2.72],
+      target: [0.0, 1.48, -3.1],
+      fov: 38,
+    },
+    lighting: {
+      moodId: 'noir',
+      neutralObsidianOverride: true,
+      keyColorHex: '#fafcff',
+      rimColorHex: '#e6ecf5',
+      backgroundHex: '#05070b',
+      fogDensity: 0.008,
+    },
+    props: {
+      emblemFacetCount: 5,
+      wordmarkFont: 'geometric-wide-extrude',
+      terrainWireframe: true,
+      terrainVertexPoints: true,
+      referenceAuthority: '/assets/aistudio/PrimeTech-basic-hero-scene-cover_1db3af78.png',
+    },
+  },
+  {
+    id: 'primetech-scene-02-sculptural-emblem',
+    slug: 'primetech-sculptural-emblem',
+    title: 'PrimeTech Sculptural Emblem',
+    subtitle: 'Scene 02 · Curated Anodized Studio Canopy, Left-Wall Signature & Flush Ceramic-White P Monolith',
+    environmentId: 'primetech-sculptural-emblem',
+    subjectId: 'primetech-plinth',
+    rendererKey: 'threejs.samscene.sculptural-emblem.v2',
+    assetUrls: [
+      '/models/primetech-sculptural-stage.glb',
+      '/models/primetech-plinth-tile.glb',
+    ],
+    camera: {
+      position: [0.35, 1.56, 0.92],
+      target: [0.02, 1.24, -2.65],
+      fov: 35,
+    },
+    lighting: {
+      moodId: 'studio',
+      neutralObsidianOverride: true,
+      keyColorHex: '#ffffff',
+      rimColorHex: '#f4f7fb',
+      backgroundHex: '#05070b',
+      fogDensity: 0.008,
+    },
+    props: {
+      emblemFacetCount: 5,
+      monolithMaterial: 'satin-ceramic-white',
+      pedestalSeating: 'flush-zero-bob',
+      hasTrademarkLockup: true,
+      referenceAuthority: '/assets/aistudio/PrimeTech-hero-white_89e804e6.png',
+    },
+  },
+];
 
 export interface StudioTemplateRow {
   id: string;
@@ -119,6 +190,7 @@ export class StudioTemplatesRepository {
     this.db.exec('PRAGMA foreign_keys = ON;');
     this.initSchema();
     this.seedDefaultsIfEmpty();
+    this.ensurePrimeTechCmsScenes();
   }
 
   private initSchema(): void {
@@ -649,6 +721,40 @@ export class StudioTemplatesRepository {
       renderer_key: 'threejs.samscene.character-rig.v1',
       status: 'active',
       sort_order: 5,
+    });
+  }
+
+  private ensurePrimeTechCmsScenes(): void {
+    const stmt = this.db.prepare('SELECT id FROM studio_templates WHERE id = ?');
+    PRIMETECH_THEME_SCENES.forEach((scene, idx) => {
+      const existing = stmt.get(scene.id) as { id?: string } | undefined;
+      if (existing?.id) return;
+      this.createTemplate({
+        id: scene.id,
+        sku: `SAM-PT-SCENE-0${idx + 1}`,
+        app_id: 'primetech-showcase',
+        resource_kind: 'cms_scene_section',
+        pack_slug: 'primetech-identity-scenes',
+        pack_title: 'PrimeTech Architectural Showcase Pack',
+        category: 'primetech-scenes',
+        title: scene.title,
+        description: scene.subtitle,
+        use_case: 'Full-bleed interactive 3D hero scene section',
+        tags: ['primetech', '3d-scene', 'glb', scene.environmentId],
+        specs: {
+          slug: scene.slug,
+          environmentId: scene.environmentId,
+          subjectId: scene.subjectId,
+          camera: scene.camera,
+          lighting: scene.lighting,
+        },
+        payload: scene as unknown as Record<string, unknown>,
+        renderer_key: scene.rendererKey,
+        compatible_apps: ['samscene-studio', 'primetech-web', 'iamscene'],
+        source_refs: scene.assetUrls,
+        status: 'active',
+        sort_order: idx,
+      });
     });
   }
 }

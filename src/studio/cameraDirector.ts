@@ -26,22 +26,33 @@ export class CameraDirector {
   public autoTour = false;
   private draggingProp = false;
 
+  private defaultFov = 45;
+  private startFov = 45;
+  private endFov = 45;
+
   init(isSoftwareGl: boolean): void {
     this.isSoftwareGl = isSoftwareGl;
     const renderer = xb.core.renderer;
-    const camera = xb.core.camera;
+    const camera = xb.core.camera as THREE.PerspectiveCamera | undefined;
     if (!renderer || !('domElement' in renderer) || !renderer.domElement || !camera) {
       return;
     }
 
-    camera.position.set(0.0, 1.72, 2.75);
+    if ('fov' in camera && typeof camera.fov === 'number') {
+      this.defaultFov = camera.fov;
+      this.startFov = camera.fov;
+      this.endFov = camera.fov;
+    }
+
+    camera.position.set(0.0, 1.54, 2.72);
     this.controls = new OrbitControls(camera, renderer.domElement);
-    this.controls.target.set(0, 1.48, -2.5);
+    this.controls.target.set(0, 1.48, -3.1);
     this.controls.enableDamping = !isSoftwareGl;
     this.controls.dampingFactor = 0.06;
-    this.controls.maxPolarAngle = Math.PI * 0.49;
-    this.controls.minDistance = 0.45;
-    this.controls.maxDistance = 11.5;
+    this.controls.maxPolarAngle = Math.PI * 0.54;
+    this.controls.minPolarAngle = 0.2;
+    this.controls.minDistance = 0.55;
+    this.controls.maxDistance = 9.0;
     this.controls.update();
 
     this.controls.addEventListener('start', () => {
@@ -62,7 +73,7 @@ export class CameraDirector {
     if (!this.controls) return;
     this.controls.enableZoom = !active;
     this.controls.enablePan = !active;
-    this.controls.maxDistance = active ? 11.5 : 8.0;
+    this.controls.maxDistance = active ? 8.5 : 8.0;
   }
 
   public setAutoTour(enabled: boolean): void {
@@ -76,14 +87,25 @@ export class CameraDirector {
     const preset = CAMERA_SHOT_MAP[shotId] || CAMERA_SHOT_MAP.establishing;
     _goalPos.set(preset.position[0], preset.position[1], preset.position[2]);
     _goalTarget.set(preset.target[0], preset.target[1], preset.target[2]);
-    this.beginTransition(_goalPos, _goalTarget, transition);
+    this.beginTransition(_goalPos, _goalTarget, transition, this.defaultFov);
+  }
+
+  public goToPresetCamera(
+    position: [number, number, number],
+    target: [number, number, number],
+    fov = 38,
+    transition: TransitionType = 'cut'
+  ): void {
+    _goalPos.set(position[0], position[1], position[2]);
+    _goalTarget.set(target[0], target[1], target[2]);
+    this.beginTransition(_goalPos, _goalTarget, transition, fov);
   }
 
   public focusOnWorldPoint(point: THREE.Vector3, transition: TransitionType = 'glide'): void {
     _goalTarget.copy(point);
     _goalTarget.y += 0.35;
     _goalPos.set(point.x + 0.55, point.y + 0.72, point.z + 1.05);
-    this.beginTransition(_goalPos, _goalTarget, transition);
+    this.beginTransition(_goalPos, _goalTarget, transition, this.defaultFov);
   }
 
   public getCameraState(): {
@@ -124,15 +146,21 @@ export class CameraDirector {
   private beginTransition(
     pos: THREE.Vector3,
     target: THREE.Vector3,
-    mode: TransitionType
+    mode: TransitionType,
+    targetFov?: number
   ): void {
-    const camera = xb.core.camera;
+    const camera = xb.core.camera as THREE.PerspectiveCamera | undefined;
     if (!camera || !this.controls) return;
 
     this.autoTour = false;
+    const nextFov = targetFov ?? this.defaultFov;
     if (mode === 'cut') {
       camera.position.copy(pos);
       this.controls.target.copy(target);
+      if ('fov' in camera && Math.abs(camera.fov - nextFov) > 0.01) {
+        camera.fov = nextFov;
+        camera.updateProjectionMatrix();
+      }
       this.controls.update();
       this.transitionActive = false;
       return;
@@ -143,8 +171,10 @@ export class CameraDirector {
     this.transitionDuration = mode === 'dolly' ? 1.8 : mode === 'crane' ? 1.9 : 1.45;
     this.startPos.copy(camera.position);
     this.startTarget.copy(this.controls.target);
+    this.startFov = 'fov' in camera ? camera.fov : this.defaultFov;
     this.endPos.copy(pos);
     this.endTarget.copy(target);
+    this.endFov = nextFov;
     this.transitionActive = true;
   }
 
@@ -169,6 +199,11 @@ export class CameraDirector {
 
       camera.position.lerpVectors(this.startPos, this.endPos, t);
       this.controls.target.lerpVectors(this.startTarget, this.endTarget, t);
+      const persp = camera as THREE.PerspectiveCamera;
+      if ('fov' in persp && Math.abs(this.startFov - this.endFov) > 0.01) {
+        persp.fov = THREE.MathUtils.lerp(this.startFov, this.endFov, t);
+        persp.updateProjectionMatrix();
+      }
 
       if (this.transitionMode === 'orbit') {
         const arc = Math.sin(rawT * Math.PI) * 0.45;

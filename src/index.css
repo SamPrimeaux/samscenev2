@@ -2122,40 +2122,75 @@ body.pt-showcase-active {
   border: 1px solid #232836;
 }
 
-/* Full-Bleed Edge-to-Edge 3D Hero Stage */
-.pt-hero-fullbleed {
+/* Full-Bleed Edge-to-Edge 3D Scene Sections (Scene 01 & Scene 02) */
+.pt-hero-fullbleed,
+.pt-scene2-fullbleed {
   position: relative;
   width: 100%;
   height: calc(100vh - 56px);
-  min-height: 580px;
-  max-height: 920px;
-  background: #06080c;
+  min-height: 560px;
+  max-height: 900px;
+  background: #05070b;
   overflow: hidden;
 }
 
-.pt-hero-stage {
+.pt-scene2-fullbleed {
+  height: min(84vh, 840px);
+  min-height: 520px;
+}
+
+.pt-scene-viewport {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  background: #06080c;
+  background: #05070b;
   z-index: 1;
 }
 
-.pt-hero-stage canvas {
+.pt-scene-viewport canvas {
+  position: relative;
+  z-index: 2;
   width: 100% !important;
   height: 100% !important;
   display: block;
 }
 
-.pt-hero-scrim {
+.pt-scene-snapshot {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.pt-scene-snapshot.is-ready {
+  opacity: 1;
+}
+
+.pt-scene-viewport.has-live-canvas .pt-scene-snapshot {
+  opacity: 0;
+}
+
+/* Keep top/center composition razor clean; only subtle bottom-left scrim for text readability */
+.pt-hero-scrim,
+.pt-scene2-scrim {
   position: absolute;
   inset: 0;
   z-index: 2;
   pointer-events: none;
-  background:
-    linear-gradient(180deg, rgba(6, 8, 12, 0.2) 0%, rgba(6, 8, 12, 0) 35%, rgba(6, 8, 12, 0.78) 84%, rgba(6, 8, 12, 0.94) 100%),
-    linear-gradient(90deg, rgba(6, 8, 12, 0.72) 0%, rgba(6, 8, 12, 0.25) 48%, rgba(6, 8, 12, 0) 75%);
+  background: linear-gradient(
+    180deg,
+    rgba(5, 7, 11, 0) 0%,
+    rgba(5, 7, 11, 0) 58%,
+    rgba(5, 7, 11, 0.72) 84%,
+    rgba(5, 7, 11, 0.94) 100%
+  );
 }
 
 .pt-hero-overlay {
@@ -2165,13 +2200,13 @@ body.pt-showcase-active {
   pointer-events: none;
   display: flex;
   align-items: flex-end;
-  padding-bottom: 24px;
+  padding-bottom: 20px;
 }
 
 .pt-hero-overlay-inner {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 12px;
 }
 
 .pt-hero-headline-block {
@@ -2179,39 +2214,33 @@ body.pt-showcase-active {
 }
 
 .pt-hero-headline-block .pt-kicker {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   font-size: 11px;
+  color: #cbd5e1;
 }
 
 .pt-hero-title {
-  margin: 0 0 10px;
-  font-size: clamp(1.75rem, 3.3vw, 2.75rem);
+  margin: 0 0 6px;
+  font-size: clamp(1.45rem, 2.6vw, 2.2rem);
   font-weight: 800;
   line-height: 1.08;
-  letter-spacing: -0.028em;
+  letter-spacing: -0.025em;
   color: #f8fafc;
   text-wrap: balance;
 }
 
 .pt-hero-sub {
-  margin: 0 0 16px;
-  font-size: 14px;
-  line-height: 1.5;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.48;
   color: #cbd5e1;
-  max-width: 48ch;
+  max-width: 54ch;
 }
 
 .pt-hero-sub code {
   font-family: 'JetBrains Mono', monospace;
-  font-size: 12px;
+  font-size: 11px;
   color: #f8fafc;
-}
-
-.pt-hero-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  pointer-events: auto;
 }
 
 .pt-hero-dock {
@@ -2224,7 +2253,7 @@ body.pt-showcase-active {
   padding: 10px 14px;
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(10, 13, 19, 0.78);
+  background: rgba(8, 10, 15, 0.82);
   backdrop-filter: blur(12px);
 }
 
@@ -2243,10 +2272,16 @@ body.pt-showcase-active {
   padding: 0 12px;
   border-radius: 7px;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(18, 22, 32, 0.86);
+  background: rgba(18, 22, 32, 0.88);
   color: #cbd5e1;
   font-size: 12px;
   font-weight: 600;
+}
+
+.pt-dock-studio-btn {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 12px;
 }
 
 .pt-world-tab:hover,
@@ -2260,6 +2295,50 @@ body.pt-showcase-active {
   background: #f4f6fa;
   border-color: #f4f6fa;
   color: #080a0e;
+}
+
+.pt-cms-drawer {
+  background: #0a0d13;
+  border-top: 1px solid #1e2431;
+  border-bottom: 1px solid #1e2431;
+  padding: 20px 0;
+}
+
+.pt-cms-drawer[hidden] {
+  display: none !important;
+}
+
+.pt-cms-drawer-inner {
+  background: #06080c;
+  border: 1px solid #222938;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.pt-cms-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #1b2130;
+  font-size: 13px;
+}
+
+.pt-cms-drawer-head code {
+  font-family: 'JetBrains Mono', monospace;
+  color: #93c5fd;
+}
+
+.pt-cms-pre {
+  margin: 0;
+  padding: 16px;
+  max-height: 320px;
+  overflow: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  color: #cbd5e1;
 }
 
 .pt-glb-grid {
@@ -2769,12 +2848,13 @@ body.pt-showcase-active {
   .pt-section {
     padding: 44px 0;
   }
-  .pt-hero-fullbleed {
-    height: calc(100vh - 56px);
-    min-height: 520px;
+  .pt-hero-fullbleed,
+  .pt-scene2-fullbleed {
+    height: min(76vh, 620px);
+    min-height: 460px;
   }
   .pt-hero-overlay {
-    padding-bottom: 16px;
+    padding-bottom: 14px;
   }
   .pt-hero-sub {
     display: none;
@@ -2782,8 +2862,12 @@ body.pt-showcase-active {
   .pt-world-tab,
   .pt-world-action-btn,
   .pt-world-select,
+  .pt-dock-studio-btn,
   .pt-mini-tab {
     min-height: 44px;
+  }
+  .pt-dock-studio-btn {
+    width: 100%;
   }
   .pt-hero-dock {
     padding: 10px;

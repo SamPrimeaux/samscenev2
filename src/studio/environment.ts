@@ -573,12 +573,38 @@ export class StudioStage extends xb.Script {
     return this.levelManager?.getHeroAssetMode() || 'full-hero';
   }
 
+  private isPrimeTechHeroEnv(): boolean {
+    return (
+      this.currentEnvironmentId === 'primetech-arch-identity' ||
+      this.currentEnvironmentId === 'primetech-sculptural-emblem' ||
+      this.currentEnvironmentId === 'primetech-vault'
+    );
+  }
+
+  public preloadEnvironmentLevel(id: EnvironmentLevelId): void {
+    this.levelManager?.preloadLevel(id);
+  }
+
+  public onEnvironmentAssetsReady(cb: (id: EnvironmentLevelId) => void): () => void {
+    if (!this.levelManager) return () => {};
+    return this.levelManager.onAssetsReady(cb);
+  }
+
+  public isEnvironmentReady(id: EnvironmentLevelId): boolean {
+    return this.levelManager?.isLevelReady(id) ?? false;
+  }
+
   private syncPresentationVisibility(): void {
-    const immersiveOnly = this.skyGenerator.getConfig().immersiveSkyOnly;
+    const skyCfg = this.skyGenerator.getConfig();
+    const immersiveOnly = skyCfg.immersiveSkyOnly;
+    const hideSkyForPrimeTech = this.heroPresentationMode && this.isPrimeTechHeroEnv();
+    this.skyGenerator.root.visible =
+      !hideSkyForPrimeTech && skyCfg.presetId !== 'studio-void';
+
     this.stageGroup.visible = !immersiveOnly;
 
-    const hideStageFurniture =
-      this.heroPresentationMode && this.currentEnvironmentId === 'primetech-vault';
+    const isPrimeTechEnv = this.isPrimeTechHeroEnv();
+    const hideStageFurniture = this.heroPresentationMode && isPrimeTechEnv;
     if (this.pedestalGroup) this.pedestalGroup.visible = !hideStageFurniture;
     if (this.micGroup) this.micGroup.visible = !hideStageFurniture;
     if (this.speakerGroup) this.speakerGroup.visible = !hideStageFurniture;
@@ -588,7 +614,7 @@ export class StudioStage extends xb.Script {
     if (this.floorMesh) {
       this.floorMesh.visible =
         !immersiveOnly &&
-        !hideStageFurniture &&
+        !isPrimeTechEnv &&
         (this.currentEnvironmentId === 'studio-stage' ||
           this.currentEnvironmentId === 'orbital-lab' ||
           this.currentEnvironmentId === 'iamscene-circuit');
@@ -816,112 +842,145 @@ export class StudioStage extends xb.Script {
     );
     this.transitionPulse *= Math.exp(-6 * dt);
 
-    this.keyLight.color.lerp(_targetKeyColor, lightDamp);
-    this.keyLight.intensity = THREE.MathUtils.damp(
-      this.keyLight.intensity,
-      this.targetKeyIntensity,
-      lightLambda,
-      dt
-    );
+    const neutralPrimeTechOverride =
+      this.heroPresentationMode && this.isPrimeTechHeroEnv();
 
-    const hueDiff = ((this.targetAmbientHue - this.currentAmbientHue + 540) % 360) - 180;
-    this.currentAmbientHue = (this.currentAmbientHue + hueDiff * lightDamp + 360) % 360;
-    this.currentAmbientSaturation = THREE.MathUtils.damp(
-      this.currentAmbientSaturation,
-      this.targetAmbientSaturation,
-      lightLambda,
-      dt
-    );
-    this.currentAmbientLightness = THREE.MathUtils.damp(
-      this.currentAmbientLightness,
-      this.targetAmbientLightness,
-      lightLambda,
-      dt
-    );
-    this.currentGroundLightness = THREE.MathUtils.damp(
-      this.currentGroundLightness,
-      this.targetGroundLightness,
-      lightLambda,
-      dt
-    );
+    if (neutralPrimeTechOverride) {
+      this.keyLight.color.setHex(0xfafcff);
+      this.keyLight.intensity = 2.35;
+      this.hemiLight.color.setHex(0xdbe3ee);
+      this.hemiLight.groundColor.setHex(0x080a0f);
+      this.hemiLight.intensity = 0.85;
+      this.rimLight.color.setHex(0xe6ecf5);
+      this.rimLight.intensity = 1.45;
+      if (this.softboxLeft) {
+        this.softboxLeft.color.setHex(0xf8fafc);
+        this.softboxLeft.intensity = 3.2;
+      }
+      if (this.softboxRight) {
+        this.softboxRight.color.setHex(0xf1f5f9);
+        this.softboxRight.intensity = 2.4;
+      }
+      this.fog.color.setHex(0x05070b);
+      this.fog.density = 0.008;
+      this.bgColor.setHex(0x05070b);
+      xb.core.scene.background = this.bgColor;
 
-    const h = this.currentAmbientHue / 360;
-    this.hemiLight.color.setHSL(h, this.currentAmbientSaturation, this.currentAmbientLightness);
-    this.hemiLight.groundColor.setHSL(
-      h,
-      this.currentAmbientSaturation * 0.68,
-      this.currentGroundLightness
-    );
-    this.hemiLight.intensity = THREE.MathUtils.damp(
-      this.hemiLight.intensity,
-      this.targetHemiIntensity,
-      lightLambda,
-      dt
-    );
-
-    this.rimLight.color.lerp(_targetRimColor, lightDamp);
-    this.rimLight.intensity = THREE.MathUtils.damp(
-      this.rimLight.intensity,
-      this.targetRimIntensity,
-      lightLambda,
-      dt
-    );
-
-    if (this.softboxLeft) {
-      this.softboxLeft.intensity = THREE.MathUtils.damp(
-        this.softboxLeft.intensity,
-        this.targetSoftboxLeftIntensity,
-        lightLambda,
-        dt
-      );
-    }
-    if (this.softboxRight) {
-      this.softboxRight.intensity = THREE.MathUtils.damp(
-        this.softboxRight.intensity,
-        this.targetSoftboxRightIntensity,
-        lightLambda,
-        dt
-      );
-    }
-
-    this.currentShadowSoftness = THREE.MathUtils.damp(
-      this.currentShadowSoftness,
-      this.targetShadowSoftness,
-      lightLambda,
-      dt
-    );
-    this.keyLight.shadow.radius = this.currentShadowSoftness;
-    this.keyLight.shadow.normalBias = 0.012 + this.currentShadowSoftness * 0.0025;
-    if (this.materials?.contactShadow) {
-      this.materials.contactShadow.opacity = THREE.MathUtils.clamp(
-        0.56 - (this.currentShadowSoftness - 0.5) * 0.028,
-        0.24,
-        0.58
-      );
-    }
-
-    // Blend horizon fog color subtly with active sky horizon color so outer space & clouds blend naturally
-    const skyCfg = this.skyGenerator.getConfig();
-    if (skyCfg.presetId !== 'studio-void') {
-      this.skyGenerator.sampleHorizonColor(_skySampleColor);
-      this.fog.color.lerp(_skySampleColor, lightDamp * 0.65);
+      const renderer = xb.core.renderer;
+      if (renderer && 'toneMappingExposure' in renderer) {
+        (renderer as THREE.WebGLRenderer).toneMappingExposure = 1.06;
+      }
     } else {
-      this.fog.color.lerp(_targetFogColor, lightDamp);
-    }
-    this.fog.density = THREE.MathUtils.damp(
-      this.fog.density,
-      skyCfg.immersiveSkyOnly ? 0.008 : this.targetFogDensity,
-      lightLambda,
-      dt
-    );
-    this.bgColor.copy(this.fog.color);
+      this.keyLight.color.lerp(_targetKeyColor, lightDamp);
+      this.keyLight.intensity = THREE.MathUtils.damp(
+        this.keyLight.intensity,
+        this.targetKeyIntensity,
+        lightLambda,
+        dt
+      );
 
-    const renderer = xb.core.renderer;
-    if (renderer && 'toneMappingExposure' in renderer) {
-      const webgl = renderer as THREE.WebGLRenderer;
-      const desiredExposure = this.targetExposure - this.transitionPulse * 0.45;
-      webgl.toneMappingExposure +=
-        (desiredExposure - webgl.toneMappingExposure) * damp;
+      const hueDiff = ((this.targetAmbientHue - this.currentAmbientHue + 540) % 360) - 180;
+      this.currentAmbientHue = (this.currentAmbientHue + hueDiff * lightDamp + 360) % 360;
+      this.currentAmbientSaturation = THREE.MathUtils.damp(
+        this.currentAmbientSaturation,
+        this.targetAmbientSaturation,
+        lightLambda,
+        dt
+      );
+      this.currentAmbientLightness = THREE.MathUtils.damp(
+        this.currentAmbientLightness,
+        this.targetAmbientLightness,
+        lightLambda,
+        dt
+      );
+      this.currentGroundLightness = THREE.MathUtils.damp(
+        this.currentGroundLightness,
+        this.targetGroundLightness,
+        lightLambda,
+        dt
+      );
+
+      const h = this.currentAmbientHue / 360;
+      this.hemiLight.color.setHSL(h, this.currentAmbientSaturation, this.currentAmbientLightness);
+      this.hemiLight.groundColor.setHSL(
+        h,
+        this.currentAmbientSaturation * 0.68,
+        this.currentGroundLightness
+      );
+      this.hemiLight.intensity = THREE.MathUtils.damp(
+        this.hemiLight.intensity,
+        this.targetHemiIntensity,
+        lightLambda,
+        dt
+      );
+
+      this.rimLight.color.lerp(_targetRimColor, lightDamp);
+      this.rimLight.intensity = THREE.MathUtils.damp(
+        this.rimLight.intensity,
+        this.targetRimIntensity,
+        lightLambda,
+        dt
+      );
+
+      if (this.softboxLeft) {
+        this.softboxLeft.color.setHex(0xfff4e6);
+        this.softboxLeft.intensity = THREE.MathUtils.damp(
+          this.softboxLeft.intensity,
+          this.targetSoftboxLeftIntensity,
+          lightLambda,
+          dt
+        );
+      }
+      if (this.softboxRight) {
+        this.softboxRight.color.setHex(0x9bc4ff);
+        this.softboxRight.intensity = THREE.MathUtils.damp(
+          this.softboxRight.intensity,
+          this.targetSoftboxRightIntensity,
+          lightLambda,
+          dt
+        );
+      }
+
+      this.currentShadowSoftness = THREE.MathUtils.damp(
+        this.currentShadowSoftness,
+        this.targetShadowSoftness,
+        lightLambda,
+        dt
+      );
+      this.keyLight.shadow.radius = this.currentShadowSoftness;
+      this.keyLight.shadow.normalBias = 0.012 + this.currentShadowSoftness * 0.0025;
+      if (this.materials?.contactShadow) {
+        this.materials.contactShadow.opacity = THREE.MathUtils.clamp(
+          0.56 - (this.currentShadowSoftness - 0.5) * 0.028,
+          0.24,
+          0.58
+        );
+      }
+
+      // Blend horizon fog color subtly with active sky horizon color so outer space & clouds blend naturally
+      const skyCfg = this.skyGenerator.getConfig();
+      if (skyCfg.presetId !== 'studio-void') {
+        this.skyGenerator.sampleHorizonColor(_skySampleColor);
+        this.fog.color.lerp(_skySampleColor, lightDamp * 0.65);
+      } else {
+        this.fog.color.lerp(_targetFogColor, lightDamp);
+      }
+      this.fog.density = THREE.MathUtils.damp(
+        this.fog.density,
+        skyCfg.immersiveSkyOnly ? 0.008 : this.targetFogDensity,
+        lightLambda,
+        dt
+      );
+      this.bgColor.copy(this.fog.color);
+      xb.core.scene.background = this.bgColor;
+
+      const renderer = xb.core.renderer;
+      if (renderer && 'toneMappingExposure' in renderer) {
+        const webgl = renderer as THREE.WebGLRenderer;
+        const desiredExposure = this.targetExposure - this.transitionPulse * 0.45;
+        webgl.toneMappingExposure +=
+          (desiredExposure - webgl.toneMappingExposure) * damp;
+      }
     }
 
     const lightRadius = 2.2;

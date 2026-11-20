@@ -3,7 +3,10 @@ import type { Request, Response } from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
-import { StudioTemplatesRepository } from './server/studioTemplatesDb.ts';
+import {
+  PRIMETECH_THEME_SCENES,
+  StudioTemplatesRepository,
+} from './server/studioTemplatesDb.ts';
 import { PrimeTechEcosystemRepository } from './server/primetechEcosystemDb.ts';
 import { SKY_PRESET_MAP } from './src/constants.ts';
 import type {
@@ -290,6 +293,23 @@ async function createServer() {
         error instanceof Error ? error.message : 'Failed to query arch.material.lookup.';
       res.status(500).json({ error: message });
     }
+  });
+
+  // --- CMS Theme Scene Contracts ---
+  app.get('/api/theme-scenes', (_req: Request, res: Response) => {
+    res.json({ scenes: PRIMETECH_THEME_SCENES });
+  });
+
+  app.get('/api/theme-scenes/:slug', (req: Request, res: Response) => {
+    const slug = String(req.params.slug || '');
+    const found = PRIMETECH_THEME_SCENES.find(
+      (s) => s.slug === slug || s.id === slug || s.environmentId === slug
+    );
+    if (!found) {
+      res.status(404).json({ error: `Theme scene "${slug}" not found.` });
+      return;
+    }
+    res.json({ scene: found });
   });
 
   // --- studio_templates SQLite Registry Endpoints ---
@@ -1654,6 +1674,8 @@ async function createServer() {
         'twilight-forest',
         'coastal-observatory',
         'orbital-lab',
+        'primetech-arch-identity',
+        'primetech-sculptural-emblem',
         'primetech-vault',
         'iamscene-circuit',
       ].includes(String(parsed.environmentId))

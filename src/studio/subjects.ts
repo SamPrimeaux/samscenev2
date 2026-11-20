@@ -633,8 +633,8 @@ function buildTerrarium(materials: StudioMaterialLibrary): StudioSubjectInstance
 }
 
 /**
- * Generates the 4 distinct faceted polygon shapes forming PrimeTech's signature geometric "P" emblem,
- * matching the interlocking origami/CAD bevel segments in both hero visuals.
+ * Generates the exact 5 faceted polygon shapes forming PrimeTech's signature geometric "P" emblem,
+ * matching the interlocking CAD bevel segments in image_bcd90a2d.png and both hero visuals.
  */
 function createPrimeTechFacetShapes(scale = 0.085): THREE.Shape[] {
   const poly = (pts: Array<[number, number]>): THREE.Shape => {
@@ -647,39 +647,43 @@ function createPrimeTechFacetShapes(scale = 0.085): THREE.Shape[] {
     return s;
   };
 
-  // 1. Top angled bridge wedge
-  const topWedge = poly([
-    [-0.56, 0.44],
-    [-0.24, 0.88],
-    [0.24, 0.88],
-    [0.06, 0.44],
+  // Normalized coordinates (total height = 1.0) scaled by caller factor
+  const topCrown = poly([
+    [-0.1961, 0.2729],
+    [0.1879, 0.2729],
+    [0.1324, 0.4967],
+    [-0.0327, 0.4967],
   ]);
 
-  // 2. Upper-right swept shoulder wing
-  const rightWing = poly([
-    [0.32, 0.84],
-    [0.68, 0.34],
-    [0.44, -0.08],
-    [0.14, 0.36],
+  const upperRightWing = poly([
+    [0.1797, 0.4951],
+    [0.2941, 0.1373],
+    [0.2647, 0.0605],
+    [0.4232, 0.0605],
+    [0.4232, 0.2696],
   ]);
 
-  // 3. Lower-right counter bar closing the P counter-space
-  const lowerBar = poly([
-    [-0.08, -0.02],
-    [0.54, -0.02],
-    [0.32, -0.34],
-    [-0.24, -0.34],
+  const lowerCounterBar = poly([
+    [-0.134, -0.2173],
+    [0.0882, -0.2173],
+    [0.3922, 0.0065],
+    [0.0163, 0.0065],
   ]);
 
-  // 4. Left diagonal spine & tapered heel
-  const leftSpine = poly([
-    [-0.6, 0.36],
-    [-0.26, 0.36],
-    [-0.28, -0.84],
-    [-0.6, -0.44],
+  const upperLeftSlab = poly([
+    [-0.4248, -0.232],
+    [-0.1977, 0.1373],
+    [-0.1977, 0.1993],
+    [-0.4248, 0.268],
   ]);
 
-  return [topWedge, rightWing, lowerBar, leftSpine];
+  const lowerLeftHeel = poly([
+    [-0.1879, 0.0376],
+    [-0.4134, -0.3203],
+    [-0.1879, -0.4984],
+  ]);
+
+  return [topCrown, upperRightWing, lowerCounterBar, upperLeftSlab, lowerLeftHeel];
 }
 
 function createRoundedRectShape(width: number, height: number, radius: number): THREE.Shape {
@@ -850,10 +854,10 @@ function buildPrimeTechCadMesh(materials: StudioMaterialLibrary): StudioSubjectI
   root.add(baseSeam);
   registerPart(explodableParts, baseSeam, new THREE.Vector3(0, 0.01, 0.08));
 
-  // 5. Sculpted PrimeTech 4-facet metallic P emblem + vertical divider bar
+  // 5. Sculpted PrimeTech 5-facet metallic P emblem + vertical divider bar
   const emblemGroup = new THREE.Group();
   emblemGroup.position.set(-0.045, 0.215, -0.04);
-  const facetShapes = createPrimeTechFacetShapes(0.082);
+  const facetShapes = createPrimeTechFacetShapes(0.142);
   const emblemMeshes: THREE.Mesh[] = [];
   for (const s of facetShapes) {
     const fGeo = trackGeo(
@@ -1224,10 +1228,10 @@ function buildPrimeTechPlinth(materials: StudioMaterialLibrary): StudioSubjectIn
   root.add(finLight);
   registerPart(explodableParts, finLight, new THREE.Vector3(0, 0.11, -0.14));
 
-  // 5. Iconic rounded-square ceramic-white monolith tile with stainless rim & recessed P emblem
+  // 5. Iconic rounded-square ceramic-white monolith tile seated FLUSH on upper pedestal
   const monolithGroup = new THREE.Group();
-  monolithGroup.position.set(0.058, 0.215, -0.012);
-  monolithGroup.rotation.y = -0.34;
+  monolithGroup.position.set(0.055, 0.213, -0.015);
+  monolithGroup.rotation.y = -0.28;
 
   const tileOuterShape = createRoundedRectShape(0.215, 0.215, 0.046);
   // Brushed stainless side housing
@@ -1244,9 +1248,9 @@ function buildPrimeTechPlinth(materials: StudioMaterialLibrary): StudioSubjectIn
   const bezelShell = new THREE.Mesh(bezelGeo, brushedBezelMat);
   monolithGroup.add(bezelShell);
 
-  // Satin white ceramic front & rear sculpted plates with recessed P holes!
+  // Satin white ceramic front & rear sculpted plates with recessed 5-facet P holes
   const plateWithHoleShape = createRoundedRectShape(0.204, 0.204, 0.042);
-  const holeFacets = createPrimeTechFacetShapes(0.072);
+  const holeFacets = createPrimeTechFacetShapes(0.115);
   for (const h of holeFacets) {
     plateWithHoleShape.holes.push(h);
   }
@@ -1292,10 +1296,8 @@ function buildPrimeTechPlinth(materials: StudioMaterialLibrary): StudioSubjectIn
     primaryMetalMeshes: [bezelShell, frontCeramic, backCeramic],
     accentMeshes: [lowerTier, upperTier, backFin],
     emissiveMeshes: [upperSeam, lowerSeam, finLight],
-    updateAnimation: (elapsed, _delta, audio) => {
-      monolithGroup.position.y = 0.215 + Math.sin(elapsed * 1.1) * 0.006;
-      monolithGroup.rotation.y = -0.34 + Math.sin(elapsed * 0.45) * 0.06;
-      rimLightMat.emissiveIntensity = 1.7 + audio.overall * 2.1;
+    updateAnimation: (_elapsed, _delta, audio) => {
+      rimLightMat.emissiveIntensity = 1.7 + audio.overall * 1.6;
     },
     dispose: () => {
       geometries.forEach((g) => g.dispose());
