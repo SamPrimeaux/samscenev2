@@ -61,6 +61,7 @@ import { StudioDeckCard } from './ui/StudioDeckCard.ts';
 import { StudioHudOverlay } from './ui/StudioHudOverlay.ts';
 import { VoiceStudioCard } from './ui/VoiceStudioCard.ts';
 import { MiniAgentSam } from './web/MiniAgentSam.ts';
+import { LIBRARY_OPEN_EVENT, type LibraryItem } from './web/libraryTypes.ts';
 import {
   PrimeTechShowcase,
   type ShowcaseGlbModelAsset,
@@ -150,6 +151,18 @@ export class StudioApp extends xb.Script {
   private lastScrollNorm = 0;
   private cleanupListeners: Array<() => void> = [];
 
+  private onLibraryOpen = (event: Event): void => {
+    const item = (event as CustomEvent<LibraryItem>).detail;
+    if (item.action.type !== 'model') return;
+    void this.handleLoadGlbFromShowcase({
+      id: item.id,
+      filename: item.action.filename,
+      url: item.action.url,
+      title: item.title,
+      sceneSlot: 'scene1',
+    } as ShowcaseGlbModelAsset);
+  };
+
   init(): void {
     xb.ui.theme = 'grayGlass';
 
@@ -186,6 +199,8 @@ export class StudioApp extends xb.Script {
     this.setupXrSpatialUi();
     this.setupMiniAgentSam();
     this.setupPrimeTechShowcase();
+    window.addEventListener(LIBRARY_OPEN_EVENT, this.onLibraryOpen);
+    this.cleanupListeners.push(() => window.removeEventListener(LIBRARY_OPEN_EVENT, this.onLibraryOpen));
     this.mountCanvasIntoViewport();
     this.attachCanvasInteractions();
     this.attachGlobalDropAndKeys();
