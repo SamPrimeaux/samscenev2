@@ -1,0 +1,49 @@
+/* Library gallery. Every color comes from the studio theme tokens in index.css. */
+.lib-bar {
+  position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 60;
+  display: flex; align-items: center; gap: 8px; padding: 6px;
+  border-radius: 16px; background: var(--bg-rail); border: 1px solid var(--border);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.lib-add {
+  width: 38px; height: 38px; border: 0; border-radius: 10px; cursor: pointer;
+  display: grid; place-items: center; color: var(--text-primary); background: transparent;
+  transition: background 0.15s;
+}
+.lib-add:hover, .lib-add[aria-expanded='true'] { background: var(--bg-elevated); }
+.lib-add:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.lib-pop {
+  position: fixed; top: 70px; left: 50%; transform: translateX(-50%); z-index: 59;
+  width: min(720px, calc(100vw - 24px)); max-height: calc(100vh - 96px); overflow-y: auto;
+  padding: 20px; border-radius: 26px; background: var(--bg-sidebar); border: 1px solid var(--border);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+}
+.lib-pop[hidden] { display: none; }
+.lib-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px 18px; color: var(--text-secondary); font-size: 13px; }
+@media (max-width: 560px) { .lib-grid { grid-template-columns: repeat(2, 1fr); } }
+
+.lib-card {
+  display: flex; flex-direction: column; gap: 10px; padding: 0; border: 0; background: none;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.lib-card:focus { outline: none; }
+.lib-thumb {
+  display: block; aspect-ratio: 16 / 10; overflow: hidden; border-radius: 14px;
+  background: color-mix(in srgb, var(--text-primary) 82%, var(--bg-app));
+  outline: 2px solid transparent; outline-offset: 3px; transition: outline-color 0.15s;
+}
+.lib-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.lib-thumb--model img { object-fit: contain; }
+.lib-thumb--loading {
+  background: linear-gradient(100deg,
+    color-mix(in srgb, var(--text-primary) 82%, var(--bg-app)) 30%,
+    color-mix(in srgb, var(--text-primary) 92%, var(--bg-app)) 50%,
+    color-mix(in srgb, var(--text-primary) 82%, var(--bg-app)) 70%);
+  background-size: 240% 100%; animation: lib-shimmer 1.3s linear infinite;
+}
+@keyframes lib-shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+.lib-label { padding-left: 2px; font-weight: 500; transition: color 0.15s; }
+.lib-card:hover .lib-thumb, .lib-card:focus-visible .lib-thumb { outline-color: var(--accent); }
+.lib-card:hover .lib-label, .lib-card:focus-visible .lib-label { color: var(--text-primary); }
+@media (prefers-reduced-motion: reduce) { .lib-thumb--loading { animation: none; } }

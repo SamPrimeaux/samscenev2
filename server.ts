@@ -7,6 +7,7 @@ import {
   PRIMETECH_THEME_SCENES,
   StudioTemplatesRepository,
 } from './server/studioTemplatesDb.ts';
+import { registerLibraryRoutes } from './server/libraryRoutes.ts';
 import { PrimeTechEcosystemRepository } from './server/primetechEcosystemDb.ts';
 import { SKY_PRESET_MAP } from './src/constants.ts';
 import type {
@@ -1803,6 +1804,8 @@ async function createServer() {
       res.status(500).json({ error: message });
     }
   });
+
+  registerLibraryRoutes(app, __dirname);
 
   if (!IS_PROD) {
     const { createServer: createViteServer } = await import('vite');

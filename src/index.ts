@@ -1,5 +1,7 @@
 import * as xb from 'xrblocks';
 import { StudioApp } from './StudioApp.ts';
+import { LibraryGallery } from './web/LibraryGallery.ts';
+import { Onboarding } from './web/Onboarding.ts';
 
 document.addEventListener('DOMContentLoaded', () => {
   const options = new xb.Options();
@@ -14,4 +16,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   xb.add(new StudioApp());
   void xb.init(options);
+
+  new LibraryGallery().mount(document.body);
+  const onboarding = new Onboarding();
+  if (onboarding.shouldShow()) void onboarding.mount(document.body);
 });
