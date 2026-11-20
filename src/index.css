@@ -2888,3 +2888,14 @@ body.pt-showcase-active {
   }
 }
 
+
+/* Hosted on a site that supplies its own header (PrimeTech site): the gallery menu sits below it,
+   and the header steps aside while the studio is open. */
+body:has(> .site-header) { --pt-site-h: clamp(79px, 7vw, 106px); }
+@media (max-width: 800px) { body:has(> .site-header) { --pt-site-h: 77px; } }
+body:has(> .site-header) .pt-showcase { top: var(--pt-site-h); }
+body:has(> .site-header) .lib-bar { top: calc(var(--pt-site-h) + 14px); }
+body:has(> .site-header) .lib-pop { top: calc(var(--pt-site-h) + 70px); }
+body.pt-studio-active > .site-header { display: none; }
+body.pt-studio-active .lib-bar { top: 14px; }
+body.pt-studio-active .lib-pop { top: 70px; }

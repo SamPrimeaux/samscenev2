@@ -312,6 +312,7 @@ export class PrimeTechShowcase {
     this.isVisible = true;
     this.root.hidden = false;
     document.body.classList.add('pt-showcase-active');
+    document.body.classList.remove('pt-studio-active');
     if (wasHidden) {
       this.callbacks.onVisibilityChange(true);
     }
@@ -332,6 +333,7 @@ export class PrimeTechShowcase {
     this.syncMobileMenu();
     this.root.hidden = true;
     document.body.classList.remove('pt-showcase-active');
+    document.body.classList.add('pt-studio-active');
     this.callbacks.onVisibilityChange(false);
   }
 
