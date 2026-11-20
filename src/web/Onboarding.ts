@@ -92,6 +92,20 @@ const TEMPLATE = `
 </div>
 `;
 
+/** Cookie the host site reads to know this visitor has finished onboarding (gates the CAD studio). */
+export const ONBOARDED_COOKIE = 'pt_onboarded';
+/** Destinations onboarding may hand the visitor on to; anything else is ignored. */
+const CONTINUE_TO = new Set(['/studio']);
+
+export function markOnboarded(): void {
+  document.cookie = `${ONBOARDED_COOKIE}=1; path=/; max-age=31536000; SameSite=Lax`;
+}
+
+export function continueToDestination(): void {
+  const next = new URLSearchParams(window.location.search).get('next');
+  if (next && CONTINUE_TO.has(next)) window.location.assign(next);
+}
+
 export class Onboarding {
   private readonly storageKey: string;
   private readonly dataUrl: string;
@@ -334,6 +348,7 @@ export class Onboarding {
     this.d('launch-title').textContent = `You're in, ${this.first(profile.name)}`;
     this.d('launch-line').textContent = `Your ${profile.focusLabel} studio is ready.`;
     this.d('launch').classList.add('ready');
+    markOnboarded();
     window.dispatchEvent(new CustomEvent<OnboardingProfile>(ONBOARDED_EVENT, { detail: profile }));
     window.setTimeout(() => this.dismiss(), 1100);
   }
@@ -343,6 +358,7 @@ export class Onboarding {
     window.setTimeout(() => {
       this.root.remove();
       if (window.location.pathname === '/onboarding') window.history.replaceState(null, '', '/');
+      continueToDestination();
     }, 500);
   }
 }

@@ -1,7 +1,7 @@
 import * as xb from 'xrblocks';
 import { StudioApp } from './StudioApp.ts';
 import { LibraryGallery } from './web/LibraryGallery.ts';
-import { Onboarding } from './web/Onboarding.ts';
+import { Onboarding, markOnboarded, continueToDestination } from './web/Onboarding.ts';
 
 document.addEventListener('DOMContentLoaded', () => {
   const options = new xb.Options();
@@ -20,4 +20,8 @@ document.addEventListener('DOMContentLoaded', () => {
   new LibraryGallery().mount(document.body);
   const onboarding = new Onboarding();
   if (onboarding.shouldShow()) void onboarding.mount(document.body);
+  else {
+    markOnboarded(); // finished earlier on this browser: let the host site know too
+    continueToDestination();
+  }
 });
