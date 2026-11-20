@@ -3,9 +3,9 @@ import { StudioApp } from './StudioApp.ts';
 
 document.addEventListener('DOMContentLoaded', () => {
   const options = new xb.Options();
-  options.setAppTitle('SamScene — Creative Studio & SamSpeak');
+  options.setAppTitle('PrimeTech — SamScene 3D Studio');
   options.setAppDescription(
-    'SamScene 3D environment studio, dynamic lighting, GLB/BIM/media ingestion & SamSpeak voice studio.'
+    'PrimeTech CAD software builds, SamScene 3D environment studio, dynamic lighting, GLB/BIM/media ingestion & SamSpeak voice studio.'
   );
   options.enableReticles();
   options.enableControllers();

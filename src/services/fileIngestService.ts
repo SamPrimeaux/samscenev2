@@ -516,6 +516,8 @@ export async function extractVideoKeyframes(
             index: i,
             timestampSec,
             dataUrl,
+            width: targetW,
+            height: targetH,
             dominantHex,
           });
         } catch {

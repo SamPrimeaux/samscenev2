@@ -9,6 +9,10 @@ export interface StudioTextureSet {
   stoneBump: THREE.CanvasTexture;
   waterRippleBump: THREE.CanvasTexture;
   hexDeckBump: THREE.CanvasTexture;
+  marbleVeinMap: THREE.CanvasTexture;
+  hammeredBump: THREE.CanvasTexture;
+  walnutGrainMap: THREE.CanvasTexture;
+  lavaFissureMap: THREE.CanvasTexture;
   dispose: () => void;
 }
 
@@ -235,6 +239,112 @@ export function createStudioTextures(maxAnisotropy: number): StudioTextureSet {
   hexDeckBump.repeat.set(4, 4);
   hexDeckBump.anisotropy = anisotropy;
 
+  // 9. Procedural marble mineral vein greyscale map (for tintable PBR stone & jade)
+  const marbleCanvas = document.createElement('canvas');
+  marbleCanvas.width = 512;
+  marbleCanvas.height = 512;
+  const mCtx = marbleCanvas.getContext('2d')!;
+  const mImg = mCtx.createImageData(512, 512);
+  for (let y = 0; y < 512; y++) {
+    for (let x = 0; x < 512; x++) {
+      const turb =
+        Math.sin(x * 0.032 + Math.cos(y * 0.025) * 2.4) * 0.5 +
+        Math.sin((x + y) * 0.055) * 0.3 +
+        Math.cos(y * 0.09 - x * 0.04) * 0.2;
+      const vein = Math.pow(Math.abs(Math.sin(x * 0.02 + y * 0.014 + turb * 2.2)), 0.28);
+      const val = Math.round(148 + vein * 107);
+      const idx = (y * 512 + x) * 4;
+      mImg.data[idx] = val;
+      mImg.data[idx + 1] = val;
+      mImg.data[idx + 2] = val;
+      mImg.data[idx + 3] = 255;
+    }
+  }
+  mCtx.putImageData(mImg, 0, 0);
+  const marbleVeinMap = new THREE.CanvasTexture(marbleCanvas);
+  marbleVeinMap.wrapS = THREE.RepeatWrapping;
+  marbleVeinMap.wrapT = THREE.RepeatWrapping;
+  marbleVeinMap.repeat.set(2, 2);
+  marbleVeinMap.anisotropy = anisotropy;
+
+  // 10. Hammered metal dimple bump map
+  const hammerCanvas = document.createElement('canvas');
+  hammerCanvas.width = 512;
+  hammerCanvas.height = 512;
+  const hmCtx = hammerCanvas.getContext('2d')!;
+  hmCtx.fillStyle = '#929292';
+  hmCtx.fillRect(0, 0, 512, 512);
+  for (let i = 0; i < 340; i++) {
+    const hx = ((i * 73) % 512);
+    const hy = ((i * 137) % 512);
+    const rad = 14 + (i % 14);
+    const grad = hmCtx.createRadialGradient(hx, hy, 1, hx, hy, rad);
+    grad.addColorStop(0, '#5a5a5a');
+    grad.addColorStop(0.75, '#a8a8a8');
+    grad.addColorStop(1, 'rgba(146,146,146,0)');
+    hmCtx.fillStyle = grad;
+    hmCtx.beginPath();
+    hmCtx.arc(hx, hy, rad, 0, Math.PI * 2);
+    hmCtx.fill();
+  }
+  const hammeredBump = new THREE.CanvasTexture(hammerCanvas);
+  hammeredBump.wrapS = THREE.RepeatWrapping;
+  hammeredBump.wrapT = THREE.RepeatWrapping;
+  hammeredBump.repeat.set(3, 3);
+  hammeredBump.anisotropy = anisotropy;
+
+  // 11. Organic walnut wood grain map
+  const walCanvas = document.createElement('canvas');
+  walCanvas.width = 512;
+  walCanvas.height = 512;
+  const wlCtx = walCanvas.getContext('2d')!;
+  const wlImg = wlCtx.createImageData(512, 512);
+  for (let y = 0; y < 512; y++) {
+    for (let x = 0; x < 512; x++) {
+      const wave = Math.sin(x * 0.04 + Math.sin(y * 0.015) * 4.5);
+      const ring = 0.5 + 0.5 * Math.sin((x * 0.14 + wave * 3.2) * 1.4);
+      const v = Math.round(140 + ring * 105);
+      const idx = (y * 512 + x) * 4;
+      wlImg.data[idx] = v;
+      wlImg.data[idx + 1] = v;
+      wlImg.data[idx + 2] = v;
+      wlImg.data[idx + 3] = 255;
+    }
+  }
+  wlCtx.putImageData(wlImg, 0, 0);
+  const walnutGrainMap = new THREE.CanvasTexture(walCanvas);
+  walnutGrainMap.wrapS = THREE.RepeatWrapping;
+  walnutGrainMap.wrapT = THREE.RepeatWrapping;
+  walnutGrainMap.repeat.set(2, 2);
+  walnutGrainMap.anisotropy = anisotropy;
+
+  // 12. Molten volcanic lava fissure emissive map
+  const lavaCanvas = document.createElement('canvas');
+  lavaCanvas.width = 512;
+  lavaCanvas.height = 512;
+  const lvCtx = lavaCanvas.getContext('2d')!;
+  lvCtx.fillStyle = '#080605';
+  lvCtx.fillRect(0, 0, 512, 512);
+  for (let vIdx = 0; vIdx < 48; vIdx++) {
+    lvCtx.strokeStyle = vIdx % 2 === 0 ? 'rgba(255, 160, 60, 0.92)' : 'rgba(255, 80, 20, 0.72)';
+    lvCtx.lineWidth = vIdx % 3 === 0 ? 3.5 : 1.8;
+    lvCtx.beginPath();
+    let cxL = (vIdx * 97) % 512;
+    let cyL = (vIdx * 53) % 512;
+    lvCtx.moveTo(cxL, cyL);
+    for (let seg = 0; seg < 7; seg++) {
+      cxL += Math.sin(vIdx * 1.7 + seg * 2.1) * 42;
+      cyL += Math.cos(vIdx * 2.3 + seg * 1.9) * 38;
+      lvCtx.lineTo(cxL, cyL);
+    }
+    lvCtx.stroke();
+  }
+  const lavaFissureMap = new THREE.CanvasTexture(lavaCanvas);
+  lavaFissureMap.wrapS = THREE.RepeatWrapping;
+  lavaFissureMap.wrapT = THREE.RepeatWrapping;
+  lavaFissureMap.repeat.set(3, 3);
+  lavaFissureMap.anisotropy = anisotropy;
+
   return {
     radialShadow,
     brushedRoughness,
@@ -244,6 +354,10 @@ export function createStudioTextures(maxAnisotropy: number): StudioTextureSet {
     stoneBump,
     waterRippleBump,
     hexDeckBump,
+    marbleVeinMap,
+    hammeredBump,
+    walnutGrainMap,
+    lavaFissureMap,
     dispose: () => {
       radialShadow.dispose();
       brushedRoughness.dispose();
@@ -253,6 +367,10 @@ export function createStudioTextures(maxAnisotropy: number): StudioTextureSet {
       stoneBump.dispose();
       waterRippleBump.dispose();
       hexDeckBump.dispose();
+      marbleVeinMap.dispose();
+      hammeredBump.dispose();
+      walnutGrainMap.dispose();
+      lavaFissureMap.dispose();
     },
   };
 }

@@ -1,9 +1,17 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import type { EnvironmentLevelId } from '../types.ts';
 import type { StudioMaterialLibrary } from './materials.ts';
 import type { StudioTextureSet } from './textures.ts';
 
 const _dummy = new THREE.Object3D();
+
+export type HeroAssetPreviewMode =
+  | 'full-hero'
+  | 'p-icon'
+  | 'wordmark'
+  | 'plinth-tile'
+  | 'chamber';
 
 export interface BuiltEnvironmentLevel {
   id: EnvironmentLevelId;
@@ -18,6 +26,13 @@ export class EnvironmentLevelManager {
   private parentGroup: THREE.Group;
   private levels = new Map<EnvironmentLevelId, BuiltEnvironmentLevel>();
   private activeId: EnvironmentLevelId = 'studio-stage';
+  private hoverX = 0;
+  private hoverY = 0;
+  private scrollNorm = 0;
+  private heroPresentationActive = true;
+  private heroAssetMode: HeroAssetPreviewMode = 'full-hero';
+  private syncVaultHeroCallback: (() => void) | null = null;
+  private gltfLoader = new GLTFLoader();
 
   constructor(
     parentGroup: THREE.Group,
@@ -35,6 +50,29 @@ export class EnvironmentLevelManager {
 
   public getActiveLevelId(): EnvironmentLevelId {
     return this.activeId;
+  }
+
+  public setHeroPresentation(active: boolean, mode?: HeroAssetPreviewMode): void {
+    this.heroPresentationActive = active;
+    if (mode) {
+      this.heroAssetMode = mode;
+    }
+    this.syncVaultHeroCallback?.();
+  }
+
+  public setHeroAssetMode(mode: HeroAssetPreviewMode): void {
+    this.heroAssetMode = mode;
+    this.syncVaultHeroCallback?.();
+  }
+
+  public getHeroAssetMode(): HeroAssetPreviewMode {
+    return this.heroAssetMode;
+  }
+
+  public setInteractionSignals(nx: number, ny: number, scrollNorm: number): void {
+    this.hoverX = THREE.MathUtils.clamp(nx, -1, 1);
+    this.hoverY = THREE.MathUtils.clamp(ny, -1, 1);
+    this.scrollNorm = THREE.MathUtils.clamp(scrollNorm, 0, 1);
   }
 
   public setLevel(id: EnvironmentLevelId): void {
@@ -332,6 +370,419 @@ export class EnvironmentLevelManager {
         this.textures.waterRippleBump.offset.x = elapsed * 0.022;
         this.textures.waterRippleBump.offset.y = Math.sin(elapsed * 0.3) * 0.04;
         beaconHead.rotation.y += dt * 0.9;
+      };
+    } else if (id === 'primetech-vault') {
+      // Full-Bleed PrimeTech Hero Chamber built from real /models/*.glb binaries + live obsidian wireframe terrain
+      const vaultFloorGeo = trackGeo(new THREE.RingGeometry(0.1, 14.5, 64));
+      vaultFloorGeo.rotateX(-Math.PI / 2);
+      const obsidianFloorMat = trackMat(
+        new THREE.MeshStandardMaterial({
+          color: 0x06080c,
+          metalness: 0.8,
+          roughness: 0.28,
+        })
+      );
+      const obsidianMountainMat = trackMat(
+        new THREE.MeshStandardMaterial({
+          color: 0x090c12,
+          metalness: 0.74,
+          roughness: 0.36,
+          flatShading: true,
+        })
+      );
+      const vaultFloor = new THREE.Mesh(vaultFloorGeo, obsidianFloorMat);
+      vaultFloor.position.y = -0.02;
+      vaultFloor.receiveShadow = true;
+      group.add(vaultFloor);
+
+      const seamMat = trackMat(
+        new THREE.MeshStandardMaterial({
+          color: 0xf8fbff,
+          emissive: 0xdceeff,
+          emissiveIntensity: 2.1,
+          roughness: 0.14,
+          metalness: 0.1,
+        })
+      );
+
+      // Subtle atmospheric spotlight glow behind the floating P | PRIMETECH .glb lockup
+      const heroRimLight = new THREE.PointLight(0xdceeff, 10.5, 11, 1.4);
+      heroRimLight.position.set(-0.2, 2.15, -2.85);
+      group.add(heroRimLight);
+
+      const frontKeyLight = new THREE.DirectionalLight(0xf6f9ff, 2.2);
+      frontKeyLight.position.set(1.6, 3.2, 2.4);
+      group.add(frontKeyLight);
+
+      // Group hierarchy for the 4 real .glb assets
+      const chamberGroup = new THREE.Group();
+      const lockupGroup = new THREE.Group();
+      const pIconAnchor = new THREE.Group();
+      const wordmarkAnchor = new THREE.Group();
+      const plinthAnchor = new THREE.Group();
+      lockupGroup.add(pIconAnchor, wordmarkAnchor);
+      group.add(chamberGroup, lockupGroup, plinthAnchor);
+
+      // Sleek stepped dark-titanium pedestal under Plinth Tile preview
+      const plinthBaseMat = trackMat(
+        new THREE.MeshPhysicalMaterial({
+          color: 0x10141c,
+          metalness: 0.86,
+          roughness: 0.22,
+          clearcoat: 0.4,
+        })
+      );
+      const plinthTier = new THREE.Mesh(
+        trackGeo(new THREE.BoxGeometry(2.1, 0.24, 1.4)),
+        plinthBaseMat
+      );
+      plinthTier.position.set(0, 0.56, -1.65);
+      plinthTier.receiveShadow = true;
+      const plinthSeam = new THREE.Mesh(
+        trackGeo(new THREE.BoxGeometry(2.12, 0.018, 1.42)),
+        seamMat
+      );
+      plinthSeam.position.set(0, 0.68, -1.65);
+      plinthAnchor.add(plinthTier, plinthSeam);
+      const plinthModelSlot = new THREE.Group();
+      plinthModelSlot.position.set(0, 1.56, -1.65);
+      plinthAnchor.add(plinthModelSlot);
+
+      const glbDisposables: Array<{ geometries: THREE.BufferGeometry[]; materials: THREE.Material[] }> = [];
+      const enhanceLoadedGlb = (root: THREE.Object3D): void => {
+        const geos: THREE.BufferGeometry[] = [];
+        const mats: THREE.Material[] = [];
+        root.traverse((obj) => {
+          const mesh = obj as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          if (mesh.geometry) geos.push(mesh.geometry);
+          const m = mesh.material as THREE.MeshStandardMaterial;
+          if (m && 'isMaterial' in m) {
+            m.envMapIntensity = 1.65;
+            if (m.name === 'PrimeTech_IceSeam') {
+              m.emissive.setHex(0xdceeff);
+              m.emissiveIntensity = 2.0;
+            }
+            mats.push(m);
+          }
+        });
+        glbDisposables.push({ geometries: geos, materials: mats });
+      };
+
+      this.gltfLoader.load('/models/primetech-hero-chamber.glb', (gltf) => {
+        enhanceLoadedGlb(gltf.scene);
+        chamberGroup.add(gltf.scene);
+      });
+      this.gltfLoader.load('/models/primetech-p-icon.glb', (gltf) => {
+        enhanceLoadedGlb(gltf.scene);
+        pIconAnchor.add(gltf.scene);
+      });
+      this.gltfLoader.load('/models/primetech-wordmark.glb', (gltf) => {
+        enhanceLoadedGlb(gltf.scene);
+        wordmarkAnchor.add(gltf.scene);
+      });
+      this.gltfLoader.load('/models/primetech-plinth-tile.glb', (gltf) => {
+        enhanceLoadedGlb(gltf.scene);
+        gltf.scene.scale.setScalar(1.35);
+        plinthModelSlot.add(gltf.scene);
+      });
+
+      // Glowing razor-sharp diagonal chamfer edge beams matching hero cover lighting
+      const makeEdgeBeam = (
+        len: number,
+        pos: [number, number, number],
+        rotZ: number
+      ): THREE.Mesh => {
+        const beam = new THREE.Mesh(
+          trackGeo(new THREE.BoxGeometry(len, 0.022, 0.032)),
+          seamMat
+        );
+        beam.position.set(pos[0], pos[1], pos[2]);
+        beam.rotation.z = rotZ;
+        return beam;
+      };
+      chamberGroup.add(
+        makeEdgeBeam(2.8, [-3.0, 1.85, -2.58], 0.72),
+        makeEdgeBeam(1.9, [2.7, 3.65, -2.48], -0.78),
+        makeEdgeBeam(3.6, [-1.85, 0.75, -1.94], 0)
+      );
+
+      // Undulating Obsidian Solid + Wireframe + Vertex Cloud Mountain Horizon
+      const tCols = 52;
+      const tRows = 28;
+      const terrainPlane = trackGeo(
+        new THREE.PlaneGeometry(15.2, 8.2, tCols - 1, tRows - 1)
+      );
+      terrainPlane.rotateX(-Math.PI / 2);
+
+      const terrainSolidGeo = trackGeo(terrainPlane.clone());
+      const terrainSolid = new THREE.Mesh(terrainSolidGeo, obsidianMountainMat);
+      terrainSolid.position.y = -0.012;
+      terrainSolid.receiveShadow = true;
+
+      const terrainWireGeo = trackGeo(new THREE.WireframeGeometry(terrainPlane));
+      const terrainWire = new THREE.LineSegments(
+        terrainWireGeo,
+        trackMat(
+          new THREE.LineBasicMaterial({
+            color: 0xdbeafe,
+            transparent: true,
+            opacity: 0.44,
+          })
+        )
+      );
+
+      const terrainPtsGeo = trackGeo(terrainPlane.clone());
+      const terrainPts = new THREE.Points(
+        terrainPtsGeo,
+        trackMat(
+          new THREE.PointsMaterial({
+            color: 0xffffff,
+            size: 0.044,
+            sizeAttenuation: true,
+            transparent: true,
+            opacity: 0.92,
+          })
+        )
+      );
+
+      const terrainWrapper = new THREE.Group();
+      terrainWrapper.position.set(0.75, 0.02, -1.45);
+      terrainWrapper.add(terrainSolid, terrainWire, terrainPts);
+      group.add(terrainWrapper);
+
+      const syncVaultPresentation = () => {
+        const mode = this.heroAssetMode;
+        const isHero = this.heroPresentationActive;
+
+        chamberGroup.visible = !isHero || mode === 'full-hero' || mode === 'chamber';
+        terrainWrapper.visible = !isHero || mode === 'full-hero' || mode === 'chamber';
+        plinthAnchor.visible = isHero && mode === 'plinth-tile';
+        lockupGroup.visible =
+          !isHero || mode === 'full-hero' || mode === 'p-icon' || mode === 'wordmark';
+
+        if (!isHero) {
+          // Inside full multi-panel Studio: tuck the GLB brand wall slightly up/back behind the turntable
+          lockupGroup.position.set(0, 2.38, -3.55);
+          lockupGroup.scale.setScalar(0.88);
+          pIconAnchor.visible = true;
+          pIconAnchor.position.set(-1.35, 0, 0);
+          pIconAnchor.scale.setScalar(1.1);
+          wordmarkAnchor.visible = true;
+          wordmarkAnchor.position.set(0.85, 0, 0);
+          wordmarkAnchor.scale.setScalar(1.0);
+          return;
+        }
+
+        if (mode === 'p-icon') {
+          pIconAnchor.visible = true;
+          pIconAnchor.position.set(0, 0, 0);
+          pIconAnchor.scale.setScalar(1.65);
+          wordmarkAnchor.visible = false;
+          lockupGroup.position.set(0, 1.68, -1.65);
+          lockupGroup.scale.setScalar(1.0);
+        } else if (mode === 'wordmark') {
+          pIconAnchor.visible = false;
+          wordmarkAnchor.visible = true;
+          wordmarkAnchor.position.set(0.32, 0, 0);
+          wordmarkAnchor.scale.setScalar(1.18);
+          lockupGroup.position.set(0, 1.65, -1.55);
+          lockupGroup.scale.setScalar(1.0);
+        } else {
+          // 'full-hero' framing inside chamber aperture matching PrimeTech cover art
+          pIconAnchor.visible = mode === 'full-hero';
+          pIconAnchor.position.set(-1.38, 0, 0);
+          pIconAnchor.scale.setScalar(1.18);
+          wordmarkAnchor.visible = mode === 'full-hero';
+          wordmarkAnchor.position.set(0.74, 0, 0);
+          wordmarkAnchor.scale.setScalar(1.02);
+          lockupGroup.position.set(0, 1.92, -1.95);
+          lockupGroup.scale.setScalar(1.0);
+        }
+      };
+      this.syncVaultHeroCallback = syncVaultPresentation;
+      syncVaultPresentation();
+
+      const displaceTerrain = (elapsed: number) => {
+        const hoverShift = this.hoverX * 1.2;
+        const hoverLift = 1 + Math.abs(this.hoverY) * 0.28 + this.scrollNorm * 0.35;
+        const heightAt = (x: number, z: number): number => {
+          // sweeping mountain ridges focused across right & lower-right foreground/midground
+          const rightBias = THREE.MathUtils.smoothstep(x, -4.6, 3.6);
+          const waveA =
+            Math.sin(x * 0.56 + elapsed * 0.45 + hoverShift) *
+            Math.cos(z * 0.68 - elapsed * 0.35);
+          const waveB = Math.sin((x - z) * 0.85 - elapsed * 0.52) * 0.42;
+          const basePeak = 0.22 + (0.68 + waveA * 0.55 + waveB) * rightBias;
+          return Math.max(0.0, basePeak * hoverLift);
+        };
+
+        const solidAttr = terrainSolidGeo.attributes.position as THREE.BufferAttribute;
+        for (let i = 0; i < solidAttr.count; i++) {
+          solidAttr.setY(i, heightAt(solidAttr.getX(i), solidAttr.getZ(i)));
+        }
+        solidAttr.needsUpdate = true;
+        terrainSolidGeo.computeVertexNormals();
+
+        const ptsAttr = terrainPtsGeo.attributes.position as THREE.BufferAttribute;
+        for (let i = 0; i < ptsAttr.count; i++) {
+          ptsAttr.setY(i, heightAt(ptsAttr.getX(i), ptsAttr.getZ(i)));
+        }
+        ptsAttr.needsUpdate = true;
+
+        const wireAttr = terrainWireGeo.attributes.position as THREE.BufferAttribute;
+        for (let i = 0; i < wireAttr.count; i++) {
+          wireAttr.setY(i, heightAt(wireAttr.getX(i), wireAttr.getZ(i)));
+        }
+        wireAttr.needsUpdate = true;
+      };
+      displaceTerrain(0);
+
+      update = (elapsed) => {
+        seamMat.emissiveIntensity =
+          1.85 + Math.sin(elapsed * 1.35) * 0.25 + Math.abs(this.hoverX) * 0.4;
+        if (this.heroPresentationActive) {
+          if (this.heroAssetMode === 'p-icon') {
+            pIconAnchor.rotation.y = elapsed * 0.55 + this.hoverX * 0.35;
+          } else if (this.heroAssetMode === 'plinth-tile') {
+            plinthModelSlot.rotation.y = Math.sin(elapsed * 0.55) * 0.45 + this.hoverX * 0.45;
+          } else {
+            pIconAnchor.rotation.y = this.hoverX * 0.14;
+            lockupGroup.rotation.y = this.hoverX * 0.05;
+            lockupGroup.rotation.x = -this.hoverY * 0.03;
+          }
+        } else {
+          pIconAnchor.rotation.y = 0;
+          lockupGroup.rotation.set(0, 0, 0);
+        }
+        displaceTerrain(elapsed);
+      };
+
+      return {
+        id,
+        group,
+        update,
+        dispose: () => {
+          this.syncVaultHeroCallback = null;
+          geometries.forEach((g) => g.dispose());
+          localMaterials.forEach((m) => m.dispose());
+          glbDisposables.forEach((d) => {
+            d.geometries.forEach((g) => g.dispose());
+            d.materials.forEach((m) => m.dispose());
+          });
+        },
+      };
+    } else if (id === 'iamscene-circuit') {
+      // IAMScene Hover & Scroll Circuit World (inspired by Circuit Hover, Retrofuturistic Loop & Scroll-Controlled Circuit)
+      const boardGeo = trackGeo(new THREE.RingGeometry(1.18, 11.5, 64));
+      boardGeo.rotateX(-Math.PI / 2);
+      const boardMat = trackMat(
+        new THREE.MeshStandardMaterial({
+          color: 0x090d14,
+          metalness: 0.8,
+          roughness: 0.28,
+        })
+      );
+      const board = new THREE.Mesh(boardGeo, boardMat);
+      board.position.y = -0.002;
+      board.receiveShadow = true;
+      group.add(board);
+
+      const traceMat = trackMat(
+        new THREE.MeshStandardMaterial({
+          color: 0x38bdf8,
+          emissive: 0x0ea5e9,
+          emissiveIntensity: 1.5,
+          roughness: 0.2,
+          metalness: 0.3,
+        })
+      );
+      const warmTraceMat = trackMat(
+        new THREE.MeshStandardMaterial({
+          color: 0xf59e0b,
+          emissive: 0xd97706,
+          emissiveIntensity: 1.25,
+          roughness: 0.24,
+          metalness: 0.5,
+        })
+      );
+
+      // Concentric circuit datum bus rings around stage
+      const ringRadii = [2.1, 3.25, 4.45, 5.8];
+      const traceRings: THREE.Mesh[] = [];
+      for (let i = 0; i < ringRadii.length; i++) {
+        const rGeo = trackGeo(new THREE.TorusGeometry(ringRadii[i], 0.015, 8, 84));
+        rGeo.rotateX(Math.PI / 2);
+        const rMesh = new THREE.Mesh(rGeo, i % 2 === 0 ? traceMat : warmTraceMat);
+        rMesh.position.y = 0.008;
+        group.add(rMesh);
+        traceRings.push(rMesh);
+      }
+
+      // Radial orthogonally routed PCB trace rails + elevated retrofuturistic pylons
+      const traceLen = 7.4;
+      const traceGeo = trackGeo(new THREE.BoxGeometry(0.028, 0.014, traceLen));
+      const nodeGeo = trackGeo(new THREE.CylinderGeometry(0.085, 0.095, 0.04, 8));
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+        const rail = new THREE.Mesh(traceGeo, i % 2 === 0 ? traceMat : warmTraceMat);
+        const midR = 4.9;
+        rail.position.set(Math.cos(a) * midR, 0.007, Math.sin(a) * midR);
+        rail.rotation.y = -a + Math.PI / 2;
+        group.add(rail);
+
+        const pad = new THREE.Mesh(nodeGeo, this.materials.secondaryMetal);
+        pad.position.set(Math.cos(a) * 3.25, 0.02, Math.sin(a) * 3.25);
+        group.add(pad);
+      }
+
+      // Elevated retrofuturistic dual loop rings arching over the rear hemisphere
+      const loopA = new THREE.Mesh(
+        trackGeo(new THREE.TorusGeometry(4.4, 0.032, 10, 96, Math.PI * 1.25)),
+        traceMat
+      );
+      loopA.position.set(0, 1.85, -1.6);
+      loopA.rotation.set(0.32, 0, Math.PI * 0.875);
+      group.add(loopA);
+
+      const loopB = new THREE.Mesh(
+        trackGeo(new THREE.TorusGeometry(4.95, 0.024, 10, 96, Math.PI * 1.15)),
+        warmTraceMat
+      );
+      loopB.position.set(0, 2.05, -2.1);
+      loopB.rotation.set(-0.22, 0, Math.PI * 0.925);
+      group.add(loopB);
+
+      // 36 Instanced traveling luminous signal packets streaming around the circuit loops
+      const packetCount = 36;
+      const packetGeo = trackGeo(new THREE.BoxGeometry(0.11, 0.035, 0.055));
+      const packets = new THREE.InstancedMesh(packetGeo, traceMat, packetCount);
+      packets.frustumCulled = false;
+      group.add(packets);
+
+      update = (elapsed, dt) => {
+        const speedBoost = 1 + Math.abs(this.hoverX) * 1.8 + this.scrollNorm * 2.4;
+        traceMat.emissiveIntensity = 1.35 + Math.abs(this.hoverX) * 1.25 + this.scrollNorm * 0.95;
+        warmTraceMat.emissiveIntensity = 1.1 + Math.abs(this.hoverY) * 1.1;
+
+        loopA.rotation.y = this.hoverX * 0.25 + Math.sin(elapsed * 0.35) * 0.08;
+        loopB.rotation.y = -this.hoverX * 0.2 + this.scrollNorm * 0.35;
+        loopB.rotation.x = -0.22 + dt * 0;
+
+        for (let i = 0; i < packetCount; i++) {
+          const ringIdx = i % ringRadii.length;
+          const r = ringRadii[ringIdx];
+          const dir = ringIdx % 2 === 0 ? 1 : -1;
+          const a = (i / packetCount) * Math.PI * 2 + elapsed * (0.45 + ringIdx * 0.14) * dir * speedBoost;
+          _dummy.position.set(Math.cos(a) * r, 0.025, Math.sin(a) * r);
+          _dummy.rotation.set(0, -a, 0);
+          _dummy.scale.setScalar(0.85 + 0.35 * Math.sin(elapsed * 3.0 + i));
+          _dummy.updateMatrix();
+          packets.setMatrixAt(i, _dummy.matrix);
+        }
+        packets.instanceMatrix.needsUpdate = true;
       };
     } else {
       // orbital-lab: Hexagonal telemetry bay, spinning calibration rings & deep starfield dome

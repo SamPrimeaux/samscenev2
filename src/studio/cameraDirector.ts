@@ -34,14 +34,14 @@ export class CameraDirector {
       return;
     }
 
-    camera.position.set(0.35, 1.55, 1.05);
+    camera.position.set(0.0, 1.72, 2.75);
     this.controls = new OrbitControls(camera, renderer.domElement);
-    this.controls.target.set(0, 1.05, -1.25);
+    this.controls.target.set(0, 1.48, -2.5);
     this.controls.enableDamping = !isSoftwareGl;
     this.controls.dampingFactor = 0.06;
     this.controls.maxPolarAngle = Math.PI * 0.49;
     this.controls.minDistance = 0.45;
-    this.controls.maxDistance = 6.5;
+    this.controls.maxDistance = 11.5;
     this.controls.update();
 
     this.controls.addEventListener('start', () => {
@@ -56,6 +56,13 @@ export class CameraDirector {
     if (this.controls) {
       this.controls.enabled = !dragging && !this.isXrPresenting();
     }
+  }
+
+  public setShowcaseMode(active: boolean): void {
+    if (!this.controls) return;
+    this.controls.enableZoom = !active;
+    this.controls.enablePan = !active;
+    this.controls.maxDistance = active ? 11.5 : 8.0;
   }
 
   public setAutoTour(enabled: boolean): void {

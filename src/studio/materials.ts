@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import type { FinishPreset } from '../types.ts';
+import { PROCEDURAL_PBR_MATERIAL_MAP, PROCEDURAL_PBR_MATERIALS } from '../constants.ts';
+import type { FinishPreset, ProceduralPbrMaterialPreset } from '../types.ts';
 import type { StudioTextureSet } from './textures.ts';
 
 export function detectSoftwareWebGL(): boolean {
@@ -37,8 +38,13 @@ export class StudioMaterialLibrary {
   public readonly contactShadow: THREE.MeshBasicMaterial;
   public readonly dialTop: THREE.MeshStandardMaterial;
   public readonly paintRibbon: THREE.MeshPhysicalMaterial;
+  private readonly textures: StudioTextureSet;
+  private readonly isSoftwareGl: boolean;
+  private dynamicPbrMaterials: THREE.Material[] = [];
 
   constructor(textures: StudioTextureSet, isSoftwareGl: boolean) {
+    this.textures = textures;
+    this.isSoftwareGl = isSoftwareGl;
     this.heroMetal = new THREE.MeshPhysicalMaterial({
       color: 0xe8b954,
       metalness: 0.94,
@@ -221,6 +227,88 @@ export class StudioMaterialLibrary {
     this.paintRibbon.iridescence = preset.iridescence;
   }
 
+  public createProceduralPbrMaterial(
+    preset: ProceduralPbrMaterialPreset
+  ): THREE.MeshPhysicalMaterial {
+    let map: THREE.Texture | null = null;
+    let bumpMap: THREE.Texture | null = null;
+    let roughnessMap: THREE.Texture | null = this.textures.brushedRoughness;
+    let emissiveMap: THREE.Texture | null = null;
+
+    switch (preset.patternType) {
+      case 'brushed-metal':
+        bumpMap = this.textures.brushedRoughness;
+        roughnessMap = this.textures.brushedRoughness;
+        break;
+      case 'hammered-copper':
+        bumpMap = this.textures.hammeredBump;
+        roughnessMap = this.textures.hammeredBump;
+        break;
+      case 'hex-carbon':
+        map = this.textures.hexDeckBump;
+        bumpMap = this.textures.hexDeckBump;
+        roughnessMap = this.textures.hexDeckBump;
+        break;
+      case 'veined-marble':
+        map = this.textures.marbleVeinMap;
+        bumpMap = this.textures.marbleVeinMap;
+        roughnessMap = this.textures.stoneBump;
+        break;
+      case 'walnut-grain':
+        map = this.textures.walnutGrainMap;
+        bumpMap = this.textures.walnutGrainMap;
+        roughnessMap = this.textures.brushedRoughness;
+        break;
+      case 'lava-basalt':
+        bumpMap = this.textures.stoneBump;
+        roughnessMap = this.textures.stoneBump;
+        emissiveMap = this.textures.lavaFissureMap;
+        break;
+      case 'frosted-crystal':
+        bumpMap = this.textures.waterRippleBump;
+        roughnessMap = null;
+        break;
+      case 'iridescent-pearl':
+        bumpMap = null;
+        roughnessMap = null;
+        break;
+    }
+
+    const useTransmission = !this.isSoftwareGl && preset.transmission > 0;
+    const mat = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color(preset.colorHex),
+      map,
+      bumpMap,
+      bumpScale: preset.bumpScale,
+      roughnessMap,
+      metalness: preset.metalness,
+      roughness: preset.roughness,
+      clearcoat: preset.clearcoat,
+      clearcoatRoughness: preset.clearcoatRoughness,
+      iridescence: preset.iridescence,
+      anisotropy: preset.anisotropy,
+      emissive: new THREE.Color(preset.emissiveHex),
+      emissiveMap,
+      emissiveIntensity: preset.emissiveIntensity,
+      transmission: useTransmission ? preset.transmission : 0,
+      transparent: preset.transmission > 0,
+      opacity: this.isSoftwareGl && preset.transmission > 0 ? 0.56 : 1.0,
+      ior: preset.ior,
+      thickness: preset.transmission > 0 ? 0.32 : 0,
+      attenuationColor: new THREE.Color(preset.secondaryHex),
+      attenuationDistance: 0.45,
+    });
+    mat.userData.pbrPresetId = preset.id;
+    mat.userData.pbrLabel = preset.label;
+    this.dynamicPbrMaterials.push(mat);
+    return mat;
+  }
+
+  public createProceduralPbrMaterialById(presetId: string): THREE.MeshPhysicalMaterial {
+    const preset = PROCEDURAL_PBR_MATERIAL_MAP[presetId] || PROCEDURAL_PBR_MATERIALS[0];
+    return this.createProceduralPbrMaterial(preset);
+  }
+
   dispose(): void {
     this.heroMetal.dispose();
     this.secondaryMetal.dispose();
@@ -241,5 +329,7 @@ export class StudioMaterialLibrary {
     this.contactShadow.dispose();
     this.dialTop.dispose();
     this.paintRibbon.dispose();
+    this.dynamicPbrMaterials.forEach((m) => m.dispose());
+    this.dynamicPbrMaterials = [];
   }
 }

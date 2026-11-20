@@ -7,6 +7,7 @@ import type {
   DroppedImageAsset,
   ExtractedVideoKeyframe,
   MovieBeat,
+  PrimeTechEcosystemSnapshot,
   ScenePackResult,
   StudioSubjectId,
   StudioTemplateRecord,
@@ -274,6 +275,34 @@ export function base64ToUint8Array(base64: string): Uint8Array {
   return bytes;
 }
 
+export interface LumberLookupSpec {
+  nominal: string;
+  actualThicknessIn: number;
+  actualWidthIn: number;
+  actualThicknessMm: number;
+  actualWidthMm: number;
+  source: string;
+}
+
+export async function fetchPrimeTechEcosystem(): Promise<PrimeTechEcosystemSnapshot> {
+  const response = await fetch('/api/primetech/ecosystem');
+  const data = (await response.json()) as Partial<PrimeTechEcosystemSnapshot> & { error?: string };
+  if (!response.ok || !Array.isArray(data.tools)) {
+    throw new Error(data.error || `Failed to load PrimeTech ecosystem (${response.status})`);
+  }
+  return data as PrimeTechEcosystemSnapshot;
+}
+
+export async function lookupArchLumber(nominal?: string): Promise<LumberLookupSpec[]> {
+  const qs = nominal ? `?nominal=${encodeURIComponent(nominal)}` : '';
+  const response = await fetch(`/api/primetech/arch-lookup${qs}`);
+  const data = (await response.json()) as { specs?: LumberLookupSpec[]; error?: string };
+  if (!response.ok || !Array.isArray(data.specs)) {
+    throw new Error(data.error || `Lumber lookup failed (${response.status})`);
+  }
+  return data.specs;
+}
+
 export function downloadWavBase64(base64: string, filename: string): void {
   const bytes = base64ToUint8Array(base64);
   const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'audio/wav' });
@@ -286,4 +315,5 @@ export function downloadWavBase64(base64: string, filename: string): void {
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
 

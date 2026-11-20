@@ -615,7 +615,7 @@ export class SceneryManager extends xb.Script {
         STAGE_POSITION.z + Math.cos(offsetAngle) * 0.65 - 0.15
       );
 
-    const built = buildProceduralCharacterRig(spec);
+    const built = buildProceduralCharacterRig(spec, this.materials);
     built.group.position.set(pos.x, 0, pos.z);
     built.group.lookAt(STAGE_POSITION.x, 0, STAGE_POSITION.z + 1.4);
     this.propsRoot.add(built.group);
@@ -635,9 +635,22 @@ export class SceneryManager extends xb.Script {
     return item;
   }
 
+  public getPlacedMeshes(): THREE.Mesh[] {
+    const meshes: THREE.Mesh[] = [];
+    for (const item of this.items) {
+      item.group.traverse((obj) => {
+        const mesh = obj as THREE.Mesh;
+        if (mesh.isMesh && mesh.material !== this.materials.contactShadow && mesh !== this.selectionRing) {
+          meshes.push(mesh);
+        }
+      });
+    }
+    return meshes;
+  }
+
   public updateScenery(dt: number, elapsed = 0, audio?: AudioLevels): void {
     const fallbackAudio: AudioLevels = audio ?? {
-      rms: 0,
+      overall: 0,
       low: 0,
       mid: 0,
       high: 0,

@@ -3,10 +3,14 @@ import * as xb from 'xrblocks';
 import {
   ENVIRONMENT_LEVEL_MAP,
   FINISH_MAP,
+  PROCEDURAL_PBR_MATERIAL_MAP,
+  REFERENCE_SKY_VIDEO_PATH,
+  SKY_PRESET_MAP,
   SUBJECT_MAP,
 } from './constants.ts';
 import { AudioEngine } from './services/audioEngine.ts';
 import {
+  extractVideoKeyframes,
   ingestStudioFile,
   transcriptCuesToBeats,
 } from './services/fileIngestService.ts';
@@ -15,7 +19,13 @@ import { exportSceneAsGlb } from './services/sceneExportService.ts';
 import {
   assistScript,
   composeWithMiniAgentSam,
+  createStudioTemplate,
+  deleteStudioTemplate,
   downloadWavBase64,
+  exportStudioTemplatesSql,
+  fetchStudioTemplates,
+  generateCharacterFromMedia,
+  generateScenePackFromVideoKeyframes,
   synthesizeSpeech,
 } from './services/ttsService.ts';
 import { CameraDirector } from './studio/cameraDirector.ts';
@@ -25,13 +35,24 @@ import { SpatialBrush } from './studio/sculptBrush.ts';
 import type {
   AtmosphereMoodId,
   CameraShotId,
+  CharacterRigSpec,
+  CharacterStylePresetId,
   EnvironmentLevelId,
+  ExtractedCameraKeyframe,
+  ExtractedVideoKeyframe,
   FinishId,
+  IamSceneDocument,
+  IamSceneNode,
   MovieBeat,
   SamSceneProjectManifest,
+  ScenePackResult,
   SceneryPropType,
+  SkyPresetId,
+  SkySceneConfig,
+  SkyTriggerMode,
   StudioMediaAsset,
   StudioSubjectId,
+  StudioTemplateRecord,
   TransitionType,
   TtsMode,
   TtsRequest,
@@ -40,6 +61,12 @@ import { StudioDeckCard } from './ui/StudioDeckCard.ts';
 import { StudioHudOverlay } from './ui/StudioHudOverlay.ts';
 import { VoiceStudioCard } from './ui/VoiceStudioCard.ts';
 import { MiniAgentSam } from './web/MiniAgentSam.ts';
+import {
+  PrimeTechShowcase,
+  type ShowcaseGlbModelAsset,
+  type ShowcaseTargetTab,
+  type ShowcaseWorldPreset,
+} from './web/PrimeTechShowcase.ts';
 
 const _raycaster = new THREE.Raycaster();
 const _ndc = new THREE.Vector2();
@@ -78,19 +105,25 @@ export class StudioApp extends xb.Script {
   private deckTransition!: xb.VisibilityTransition;
   private voiceTransition!: xb.VisibilityTransition;
 
-  // Web creative studio shell & flexible side container
+  // Web creative studio shell, showcase & flexible side container
   private miniSam!: MiniAgentSam;
+  private showcase!: PrimeTechShowcase;
 
-  private activeSubjectId: StudioSubjectId = 'astrolabe';
-  private activeFinishId: FinishId = 'gold';
-  private activeEnvironmentId: EnvironmentLevelId = 'studio-stage';
-  private activeMoodId: AtmosphereMoodId = 'studio';
+  private activeSubjectId: StudioSubjectId = 'primetech-cadmesh';
+  private activeFinishId: FinishId = 'titanium';
+  private activeEnvironmentId: EnvironmentLevelId = 'primetech-vault';
+  private activeMoodId: AtmosphereMoodId = 'noir';
+  private activeBrushPresetId = 'pbr-brushed-gold';
+  private activeDragPbrId: string | null = null;
   private mediaAssets: StudioMediaAsset[] = [];
+  private generatedCharacters: CharacterRigSpec[] = [];
+  private latestScenePack: ScenePackResult | null = null;
+  private studioTemplates: StudioTemplateRecord[] = [];
   private lastAudioBase64: string | null = null;
   private uiValidated = false;
   private framesSinceInit = 0;
 
-  // Desktop pointer/drag/paint tracking
+  // Desktop pointer/drag/paint & showcase tracking
   private pointerDownPos = new THREE.Vector2();
   private draggingProp = false;
   private paintingWeb = false;
@@ -98,6 +131,10 @@ export class StudioApp extends xb.Script {
   private movieRunToken = 0;
   private isRestoringManifest = false;
   private autoSaveTimer: number | null = null;
+  private viewportObserver: ResizeObserver | null = null;
+  private lastHoverNx = 0;
+  private lastHoverNy = 0;
+  private lastScrollNorm = 0;
   private cleanupListeners: Array<() => void> = [];
 
   init(): void {
@@ -123,14 +160,19 @@ export class StudioApp extends xb.Script {
     this.add(this.scenery);
     this.scenery.seedStarterScenery();
 
-    this.brush = new SpatialBrush(this.stage.materials.paintRibbon, (count) => {
+    const defaultBrushMat =
+      this.stage.materials.createProceduralPbrMaterialById(this.activeBrushPresetId) ||
+      this.stage.materials.paintRibbon;
+    this.brush = new SpatialBrush(defaultBrushMat, (count) => {
       this.deckCard?.setStrokeCount(count);
       this.miniSam?.syncBrushState(this.brush.enabled, count);
     });
+    this.brush.setActiveMaterial(defaultBrushMat, this.activeBrushPresetId);
     this.add(this.brush);
 
     this.setupXrSpatialUi();
     this.setupMiniAgentSam();
+    this.setupPrimeTechShowcase();
     this.mountCanvasIntoViewport();
     this.attachCanvasInteractions();
     this.attachGlobalDropAndKeys();
@@ -140,34 +182,43 @@ export class StudioApp extends xb.Script {
     if (saved) {
       this.applyManifest(saved, false);
     } else {
+      this.stage.setEnvironmentLevel(this.activeEnvironmentId);
+      this.stage.setAtmosphereMood(this.activeMoodId, true);
+      this.stage.setSubject(this.activeSubjectId);
+      this.stage.setFinish(this.activeFinishId);
+      const initialSky = this.stage.setSkyTriggerMode('hover-reactive');
+      this.cameraDirector.goToShot('establishing', 'cut');
+      this.miniSam.syncEnvironment(this.activeEnvironmentId);
+      this.miniSam.syncSubject(this.activeSubjectId);
+      this.miniSam.syncFinish(this.activeFinishId);
+      this.miniSam.syncMood(this.activeMoodId);
+      this.miniSam.syncSkyConfig(initialSky);
+      this.miniSam.syncLightingState(this.stage.getLightingState());
       this.projectService.replaceBaseline(this.captureManifest());
+    }
+    if (this.showcase.isOpen()) {
+      this.applyShowcaseWorld(this.showcase.getActiveWorld());
+      this.cameraDirector.goToShot('establishing', 'cut');
     }
     this.miniSam.syncSavedSlots(this.projectService.listSavedSlots());
     this.miniSam.syncHistoryState(
       this.projectService.canUndo(),
       this.projectService.canRedo()
     );
+    void this.refreshStudioTemplates();
 
     this.audioEngine.playStudioCue('ready');
   }
 
   private mountCanvasIntoViewport(): void {
-    const renderer = xb.core.renderer;
-    const viewport = this.miniSam.getViewportElement();
-    if (!renderer || !('domElement' in renderer) || !renderer.domElement || !viewport) {
-      return;
-    }
-
-    const canvas = renderer.domElement;
-    if (canvas.parentElement !== viewport) {
-      viewport.prepend(canvas);
-    }
-
     const syncViewportSize = () => {
       if (xb.core.renderer?.xr?.isPresenting) return;
+      const renderer = xb.core.renderer;
+      const targetHost = this.getActiveViewportHost();
+      if (!renderer || !targetHost) return;
       const camera = xb.core.camera as THREE.PerspectiveCamera | undefined;
-      const w = Math.max(1, Math.floor(viewport.clientWidth));
-      const h = Math.max(1, Math.floor(viewport.clientHeight));
+      const w = Math.max(1, Math.floor(targetHost.clientWidth));
+      const h = Math.max(1, Math.floor(targetHost.clientHeight));
       if (camera && 'aspect' in camera) {
         camera.aspect = w / h;
         camera.updateProjectionMatrix();
@@ -177,19 +228,63 @@ export class StudioApp extends xb.Script {
       }
     };
 
-    const observer = new ResizeObserver(() => syncViewportSize());
-    observer.observe(viewport);
-
     const onWindowResize = () => {
       window.requestAnimationFrame(syncViewportSize);
     };
     window.addEventListener('resize', onWindowResize);
-    syncViewportSize();
+
+    this.syncCanvasMount();
 
     this.cleanupListeners.push(() => {
-      observer.disconnect();
+      this.viewportObserver?.disconnect();
+      this.viewportObserver = null;
       window.removeEventListener('resize', onWindowResize);
     });
+  }
+
+  private getActiveViewportHost(): HTMLElement {
+    if (this.showcase?.isOpen()) {
+      return this.showcase.getHeroViewportElement();
+    }
+    return this.miniSam.getViewportElement();
+  }
+
+  private syncCanvasMount(): void {
+    const renderer = xb.core.renderer;
+    if (!renderer || !('domElement' in renderer) || !renderer.domElement) return;
+    const canvas = renderer.domElement;
+    const host = this.getActiveViewportHost();
+    if (!host) return;
+
+    if (canvas.parentElement !== host) {
+      host.prepend(canvas);
+    }
+
+    const showcaseOpen = Boolean(this.showcase?.isOpen());
+    this.cameraDirector.setShowcaseMode(showcaseOpen);
+    this.stage.setHeroPresentationMode(
+      showcaseOpen,
+      showcaseOpen ? this.showcase.getActiveWorld().heroAssetMode : undefined
+    );
+
+    this.viewportObserver?.disconnect();
+    const syncSize = () => {
+      if (xb.core.renderer?.xr?.isPresenting) return;
+      const camera = xb.core.camera as THREE.PerspectiveCamera | undefined;
+      const w = Math.max(1, Math.floor(host.clientWidth));
+      const h = Math.max(1, Math.floor(host.clientHeight));
+      if (w <= 1 || h <= 1) return;
+      if (camera && 'aspect' in camera) {
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+      }
+      if ('setSize' in renderer && typeof renderer.setSize === 'function') {
+        renderer.setSize(w, h, false);
+      }
+    };
+    this.viewportObserver = new ResizeObserver(() => syncSize());
+    this.viewportObserver.observe(host);
+    window.requestAnimationFrame(syncSize);
   }
 
   private setupXrSpatialUi(): void {
@@ -377,6 +472,7 @@ export class StudioApp extends xb.Script {
       onAssistScript: (mode) => this.handleAssistScript(mode),
       onExportScene: () => this.handleExportScene(),
       onExportProjectBundle: () => this.handleExportProjectBundle(),
+      onExportIamScene: () => this.handleExportIamScene(),
       onSaveProjectSlot: (name) => this.handleSaveProjectSlot(name),
       onLoadProjectSlot: (id) => this.handleLoadProjectSlot(id),
       onDeleteProjectSlot: (id) => {
@@ -388,13 +484,210 @@ export class StudioApp extends xb.Script {
       onRedo: () => this.handleRedo(),
       onProjectStateChange: () => this.recordProjectMutation(),
       onEnterXr: () => this.handleEnterXr(),
+      onSelectBrushPbrPreset: (presetId) => this.handleSelectBrushPbrPreset(presetId),
+      onStartPbrDrag: (presetId) => {
+        this.activeDragPbrId = presetId;
+        if (!presetId) {
+          this.miniSam.setViewportDropHint(null);
+        }
+      },
+      onApplyPbrToAllStrokes: (presetId) => this.handleApplyPbrToAllStrokes(presetId),
+      onApplyPbrToSubject: (presetId) => this.handleApplyPbrToSubject(presetId),
+      onAddSampleSculpt: (presetId) => this.handleAddSampleSculpt(presetId),
+      onSelectSkyPreset: (presetId: SkyPresetId) => {
+        const cfg = this.stage.setSkyPreset(presetId);
+        this.miniSam.syncSkyConfig(cfg);
+        this.audioEngine.playStudioCue('switch');
+        this.miniSam.showToast(`Sky Dome: ${cfg.title}`);
+        this.recordProjectMutation();
+      },
+      onUpdateSkyConfig: (patch: Partial<SkySceneConfig>) => {
+        const cfg = this.stage.applySkyConfig(patch, true);
+        this.miniSam.syncSkyConfig(cfg);
+        this.recordProjectMutation();
+      },
+      onSetSkyTriggerMode: (mode: SkyTriggerMode) => {
+        const cfg = this.stage.setSkyTriggerMode(mode);
+        this.miniSam.syncSkyConfig(cfg);
+        this.audioEngine.playStudioCue('select');
+        this.recordProjectMutation();
+      },
+      onSaveSkyTemplate: () => this.handleSaveSkyTemplate(),
+      onGenerateCharacter: (params) => this.handleGenerateCharacter(params),
+      onPlaceCharacter: (character) => {
+        const item = this.scenery.placeCharacterRig(character);
+        this.cameraDirector.focusOnWorldPoint(item.group.position, 'glide');
+        this.audioEngine.playStudioCue('ready');
+        this.miniSam.showToast(`Placed 3D cartoon actor "${character.name}" on stage.`);
+      },
+      onSpeakCharacterIntro: async (character) => {
+        await this.handleSynthesize({
+          mode: 'single',
+          text: character.introScript,
+          voiceName: character.voiceName,
+          stylePrompt: character.voiceStyle,
+        });
+      },
+      onExtractVideoScenePack: (params) => this.handleExtractVideoScenePack(params),
+      onApplyScenePack: (pack) => this.applyScenePack(pack),
+      onPreviewCameraKeyframe: (kf) => this.previewExtractedCameraKeyframe(kf),
+      onRefreshTemplates: (filters) => this.refreshStudioTemplates(filters),
+      onApplyTemplateRecord: (tpl) => this.handleApplyTemplateRecord(tpl),
+      onDeleteTemplateRecord: (id) => this.handleDeleteTemplateRecord(id),
+      onExportTemplatesSql: () => this.handleExportTemplatesSql(),
+      onOpenShowcase: () => {
+        this.showcase?.show();
+      },
     });
 
     this.miniSam.syncSelection(null, this.scenery.getItemCount());
     this.miniSam.syncStandaloneScript(SUBJECT_MAP[this.activeSubjectId].defaultSingleScript);
     this.miniSam.syncLightingState(this.stage.getLightingState());
     this.miniSam.syncEnvironment(this.activeEnvironmentId);
+    this.miniSam.syncSkyConfig(this.stage.getSkyConfig());
+    this.miniSam.syncBrushPreset(this.activeBrushPresetId);
+    this.miniSam.syncBrushState(this.brush.enabled, this.brush.strokeCount);
     this.miniSam.syncVolumeState(this.audioEngine.getVolume(), this.audioEngine.isMuted());
+  }
+
+  private setupPrimeTechShowcase(): void {
+    this.showcase = new PrimeTechShowcase({
+      onOpenStudio: (options) => this.handleLaunchFromShowcase(options),
+      onSelectHeroWorld: (world) => this.applyShowcaseWorld(world),
+      onLoadGlbInStudio: (asset) => void this.handleLoadGlbFromShowcase(asset),
+      onToggleHeroExplode: (exploded) => {
+        this.stage.setExplodeAmount(exploded ? 0.65 : 0);
+        this.miniSam.syncStageDynamics(exploded ? 0.65 : 0, this.stage.getSpinSpeed());
+        this.audioEngine.playStudioCue('select');
+      },
+      onResetHeroCamera: () => {
+        this.cameraDirector.goToShot('establishing', 'glide');
+        this.audioEngine.playStudioCue('switch');
+      },
+      onChangeHeroTrigger: (mode) => {
+        const cfg = this.stage.setSkyTriggerMode(mode);
+        this.miniSam.syncSkyConfig(cfg);
+        this.audioEngine.playStudioCue('select');
+      },
+      onExportIamScene: () => this.handleExportIamScene(),
+      onVisibilityChange: () => {
+        this.syncCanvasMount();
+      },
+    });
+    this.showcase.show();
+
+    const scrollRoot = this.showcase.getScrollRoot();
+    const onShowcaseScroll = () => {
+      const maxScroll = Math.max(1, scrollRoot.scrollHeight - scrollRoot.clientHeight);
+      const norm = THREE.MathUtils.clamp(scrollRoot.scrollTop / maxScroll, 0, 1);
+      this.lastScrollNorm = norm;
+      this.stage.setWorldInteraction(this.lastHoverNx, this.lastHoverNy, norm);
+      const sky = this.stage.getSkyConfig();
+      if (sky.triggerMode === 'scroll-reactive') {
+        const updated = this.stage.applySkyConfig({ progression: norm }, false);
+        this.miniSam.syncSkyConfig(updated);
+      }
+    };
+    scrollRoot.addEventListener('scroll', onShowcaseScroll, { passive: true });
+    this.cleanupListeners.push(() => scrollRoot.removeEventListener('scroll', onShowcaseScroll));
+  }
+
+  private async handleLoadGlbFromShowcase(asset: ShowcaseGlbModelAsset): Promise<void> {
+    this.showcase.hide();
+    this.syncCanvasMount();
+    this.stage.setEnvironmentLevel('studio-stage');
+    this.activeEnvironmentId = 'studio-stage';
+    this.stage.setAtmosphereMood('studio', true);
+    this.activeMoodId = 'studio';
+    this.miniSam.syncEnvironment('studio-stage');
+    this.miniSam.syncMood('studio');
+    this.miniSam.showToast(`Importing binary .glb model: ${asset.filename}...`);
+
+    try {
+      const resp = await fetch(asset.url);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status} loading ${asset.url}`);
+      const blob = await resp.blob();
+      const file = new File([blob], asset.filename, { type: 'model/gltf-binary' });
+      await this.handleImportFiles([file]);
+      this.miniSam.openTab('scenery', window.innerWidth > 720);
+    } catch (err) {
+      this.miniSam.showToast(
+        err instanceof Error ? err.message : `Failed to load ${asset.filename}`
+      );
+    }
+  }
+
+  private applyShowcaseWorld(world: ShowcaseWorldPreset): void {
+    this.activeEnvironmentId = world.environmentId;
+    this.stage.setEnvironmentLevel(world.environmentId);
+    this.stage.setHeroPresentationMode(Boolean(this.showcase?.isOpen()), world.heroAssetMode);
+    this.miniSam.syncEnvironment(world.environmentId);
+
+    const envPreset = ENVIRONMENT_LEVEL_MAP[world.environmentId];
+    const nextMood = envPreset?.defaultMood || 'noir';
+    this.activeMoodId = nextMood;
+    this.stage.setAtmosphereMood(nextMood);
+    this.miniSam.syncMood(nextMood);
+    this.miniSam.syncLightingState(this.stage.getLightingState());
+
+    this.handleSelectSubject(world.subjectId);
+    const nextFinish: FinishId =
+      world.subjectId === 'primetech-plinth'
+        ? 'titanium'
+        : world.environmentId === 'iamscene-circuit'
+          ? 'iridescent'
+          : 'obsidian';
+    this.handleSelectFinish(nextFinish);
+
+    const skyCfg = this.stage.setSkyTriggerMode(world.triggerMode);
+    this.miniSam.syncSkyConfig(skyCfg);
+
+    this.cameraDirector.goToShot('establishing', 'glide');
+    this.audioEngine.playStudioCue('switch');
+  }
+
+  private handleLaunchFromShowcase(options?: {
+    worldId?: string;
+    subjectId?: StudioSubjectId;
+    environmentId?: EnvironmentLevelId;
+    tab?: ShowcaseTargetTab;
+  }): void {
+    this.showcase.hide();
+    this.syncCanvasMount();
+
+    const envId: EnvironmentLevelId = options?.environmentId || 'primetech-vault';
+    if (options?.subjectId && SUBJECT_MAP[options.subjectId]) {
+      this.activeEnvironmentId = envId;
+      this.stage.setEnvironmentLevel(envId);
+      this.miniSam.syncEnvironment(envId);
+
+      const mood = ENVIRONMENT_LEVEL_MAP[envId]?.defaultMood || 'noir';
+      this.activeMoodId = mood;
+      this.stage.setAtmosphereMood(mood, true);
+      this.miniSam.syncMood(mood);
+      this.miniSam.syncLightingState(this.stage.getLightingState());
+
+      this.handleSelectSubject(options.subjectId);
+      const nextFinish: FinishId =
+        options.subjectId === 'primetech-plinth'
+          ? 'titanium'
+          : envId === 'iamscene-circuit'
+            ? 'iridescent'
+            : 'obsidian';
+      this.handleSelectFinish(nextFinish);
+
+      this.cameraDirector.goToShot('hero', 'glide');
+      this.miniSam.showToast(
+        `Loaded ${SUBJECT_MAP[options.subjectId].label} inside ${
+          ENVIRONMENT_LEVEL_MAP[envId]?.label || 'PrimeTech Vault'
+        }.`
+      );
+    }
+
+    if (options?.tab) {
+      const expand = window.innerWidth > 720;
+      this.miniSam.openTab(options.tab, expand);
+    }
   }
 
   private captureManifest(): SamSceneProjectManifest {
@@ -421,6 +714,7 @@ export class StudioApp extends xb.Script {
       finishId: this.activeFinishId,
       environmentId: this.activeEnvironmentId,
       moodId: this.activeMoodId,
+      skyConfig: this.stage.getSkyConfig(),
       explodeAmount: this.stage.getExplodeAmount(),
       spinSpeed: this.stage.getSpinSpeed(),
       lighting: this.stage.getLightingState(),
@@ -459,6 +753,10 @@ export class StudioApp extends xb.Script {
         this.activeMoodId = manifest.moodId;
         this.stage.setAtmosphereMood(manifest.moodId, true);
         this.miniSam.syncMood(manifest.moodId);
+      }
+      if (manifest.skyConfig) {
+        const appliedSky = this.stage.applySkyConfig(manifest.skyConfig, true);
+        this.miniSam.syncSkyConfig(appliedSky);
       }
       if (manifest.lighting) {
         this.stage.applyLightingState(manifest.lighting);
@@ -627,10 +925,52 @@ export class StudioApp extends xb.Script {
             continue;
           }
 
+          if (lower.endsWith('.iamscene.json')) {
+            setStage('Parsing declarative iamscene.v1 scene document...');
+            const text = await file.text();
+            const doc = JSON.parse(text) as IamSceneDocument;
+            if (doc && doc.schemaVersion === 'iamscene.v1') {
+              if (doc.environmentId && ENVIRONMENT_LEVEL_MAP[doc.environmentId]) {
+                this.handleSelectEnvironment(doc.environmentId);
+              }
+              if (doc.subjectId && SUBJECT_MAP[doc.subjectId]) {
+                this.handleSelectSubject(doc.subjectId);
+              }
+              if (doc.finishId && FINISH_MAP[doc.finishId]) {
+                this.handleSelectFinish(doc.finishId);
+              }
+              if (doc.triggerMode) {
+                const cfg = this.stage.setSkyTriggerMode(doc.triggerMode);
+                this.miniSam.syncSkyConfig(cfg);
+              }
+              this.audioEngine.playStudioCue('ready');
+              this.miniSam.showToast(
+                `Loaded portable IAMScene v1: "${doc.name}" (${doc.nodes?.length || 0} nodes).`
+              );
+              continue;
+            }
+          }
+
           if (lower.endsWith('.json')) {
             const rawText = await file.text();
             try {
-              const parsed = JSON.parse(rawText) as { version?: number; beats?: unknown };
+              const parsed = JSON.parse(rawText) as {
+                version?: number;
+                schemaVersion?: string;
+                beats?: unknown;
+              };
+              if (parsed?.schemaVersion === 'iamscene.v1') {
+                const doc = parsed as unknown as IamSceneDocument;
+                if (doc.environmentId && ENVIRONMENT_LEVEL_MAP[doc.environmentId]) {
+                  this.handleSelectEnvironment(doc.environmentId);
+                }
+                if (doc.subjectId && SUBJECT_MAP[doc.subjectId]) {
+                  this.handleSelectSubject(doc.subjectId);
+                }
+                this.audioEngine.playStudioCue('ready');
+                this.miniSam.showToast(`Loaded IAMScene document: ${doc.name}`);
+                continue;
+              }
               if (parsed && parsed.version === 1 && Array.isArray(parsed.beats)) {
                 setStage('Restoring SamScene project manifest...');
                 const manifest = this.projectService.parseProjectJson(rawText);
@@ -676,7 +1016,20 @@ export class StudioApp extends xb.Script {
             const item = this.scenery.placeVideoScreen(asset, offsetDropPoint);
             this.cameraDirector.focusOnWorldPoint(item.group.position, 'glide');
             this.audioEngine.playStudioCue('ready');
-            this.miniSam.showToast(`Placed 3D video screen: ${asset.name}`);
+            const kfCount = asset.extractedKeyframes?.length || 0;
+            this.miniSam.showToast(
+              `Placed 3D video screen: ${asset.name}${
+                kfCount > 0 ? ` — Parsing ${kfCount} keyframes into Scene Pack...` : ''
+              }`
+            );
+            if (kfCount > 0) {
+              void this.handleExtractVideoScenePack({
+                assetId: asset.id,
+                prompt: `Extract textures, camera paths, sky dome, and character poses from ${asset.name}`,
+                generateCoverArt: true,
+                generateAnimationVideo: false,
+              });
+            }
           } else if (asset.category === 'model' || asset.category === 'bim') {
             const item = this.scenery.placeImportedModelAsset(asset, offsetDropPoint);
             if (item) {
@@ -888,13 +1241,45 @@ export class StudioApp extends xb.Script {
       }
     };
 
+    const onPointerMoveCanvas = (e: PointerEvent) => {
+      if (xb.core.renderer?.xr?.isPresenting) return;
+      const rect = dom.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        this.lastHoverNx = nx;
+        this.lastHoverNy = ny;
+        this.stage.setWorldInteraction(nx, ny, this.lastScrollNorm);
+        const sky = this.stage.getSkyConfig();
+        if (sky.triggerMode === 'hover-reactive') {
+          this.stage.handleSkyPointerHover(nx, ny);
+        }
+      }
+    };
+
+    const onWheelCanvas = (e: WheelEvent) => {
+      if (xb.core.renderer?.xr?.isPresenting) return;
+      if (this.showcase?.isOpen()) return;
+      const sky = this.stage.getSkyConfig();
+      if (sky.triggerMode === 'scroll-reactive') {
+        const nextProg = this.stage.handleSkyScrollDelta(e.deltaY);
+        this.lastScrollNorm = nextProg;
+        this.stage.setWorldInteraction(this.lastHoverNx, this.lastHoverNy, nextProg);
+        this.miniSam.syncSkyConfig({ ...sky, progression: nextProg });
+      }
+    };
+
     dom.addEventListener('pointerdown', onPointerDown);
+    dom.addEventListener('pointermove', onPointerMoveCanvas);
+    dom.addEventListener('wheel', onWheelCanvas, { passive: true });
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
     window.addEventListener('pointercancel', onPointerUp);
 
     this.cleanupListeners.push(() => {
       dom.removeEventListener('pointerdown', onPointerDown);
+      dom.removeEventListener('pointermove', onPointerMoveCanvas);
+      dom.removeEventListener('wheel', onWheelCanvas);
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerUp);
@@ -930,6 +1315,115 @@ export class StudioApp extends xb.Script {
     );
   }
 
+  private raycastPbrTarget(
+    clientX: number,
+    clientY: number
+  ): {
+    kind: 'stroke' | 'subject' | 'scenery';
+    mesh: THREE.Mesh;
+    label: string;
+  } | null {
+    const viewport = this.miniSam.getViewportElement();
+    const camera = xb.core.camera;
+    if (!viewport || !camera) return null;
+    const rect = viewport.getBoundingClientRect();
+    if (
+      rect.width <= 0 ||
+      rect.height <= 0 ||
+      clientX < rect.left ||
+      clientX > rect.right ||
+      clientY < rect.top ||
+      clientY > rect.bottom
+    ) {
+      return null;
+    }
+
+    _ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    _ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    _raycaster.setFromCamera(_ndc, camera);
+
+    const strokeMeshes = this.brush.getStrokeMeshes();
+    if (strokeMeshes.length > 0) {
+      const strokeHits = _raycaster.intersectObjects(strokeMeshes, false);
+      if (strokeHits.length > 0) {
+        const mesh = strokeHits[0].object as THREE.Mesh;
+        return { kind: 'stroke', mesh, label: mesh.name || 'Sculpted Stroke' };
+      }
+    }
+
+    const subjectMeshes = this.stage.getSubjectMeshes();
+    if (subjectMeshes.length > 0) {
+      const subjectHits = _raycaster.intersectObjects(subjectMeshes, false);
+      if (subjectHits.length > 0) {
+        const mesh = subjectHits[0].object as THREE.Mesh;
+        return {
+          kind: 'subject',
+          mesh,
+          label: `${SUBJECT_MAP[this.activeSubjectId].label} Sculpture`,
+        };
+      }
+    }
+
+    const placedMeshes = this.scenery.getPlacedMeshes();
+    if (placedMeshes.length > 0) {
+      const placedHits = _raycaster.intersectObjects(placedMeshes, false);
+      if (placedHits.length > 0) {
+        const mesh = placedHits[0].object as THREE.Mesh;
+        return { kind: 'scenery', mesh, label: mesh.name || '3D Scene Mesh' };
+      }
+    }
+
+    return null;
+  }
+
+  private applyPbrPresetToRaycastTarget(
+    presetId: string,
+    clientX: number,
+    clientY: number
+  ): boolean {
+    const preset = PROCEDURAL_PBR_MATERIAL_MAP[presetId];
+    if (!preset) return false;
+
+    const target = this.raycastPbrTarget(clientX, clientY);
+    if (target?.kind === 'stroke') {
+      const mat = this.stage.materials.createProceduralPbrMaterial(preset);
+      this.brush.applyMaterialToStroke(target.mesh, mat, preset.id);
+      this.handleSelectBrushPbrPreset(preset.id);
+      this.audioEngine.playStudioCue('paint');
+      this.miniSam.showToast(`Applied ${preset.label} to ${target.label}.`);
+      return true;
+    }
+
+    if (target?.kind === 'subject') {
+      this.stage.applyProceduralMaterialToSubject(preset, target.mesh);
+      this.handleSelectBrushPbrPreset(preset.id);
+      this.audioEngine.playStudioCue('paint');
+      this.miniSam.showToast(`Applied ${preset.label} to ${target.label}.`);
+      return true;
+    }
+
+    if (target?.kind === 'scenery') {
+      target.mesh.material = this.stage.materials.createProceduralPbrMaterial(preset);
+      this.handleSelectBrushPbrPreset(preset.id);
+      this.audioEngine.playStudioCue('paint');
+      this.miniSam.showToast(`Applied ${preset.label} to ${target.label}.`);
+      return true;
+    }
+
+    // Fallback: if dropped onto open viewport background, apply to brush + centerpiece primary
+    this.handleSelectBrushPbrPreset(preset.id);
+    if (this.brush.strokeCount > 0) {
+      const mat = this.stage.materials.createProceduralPbrMaterial(preset);
+      this.brush.applyMaterialToAllStrokes(mat, preset.id);
+    }
+    this.stage.applyProceduralMaterialToSubject(preset);
+    this.audioEngine.playStudioCue('paint');
+    this.miniSam.showToast(
+      `Armed 3D brush & applied ${preset.label} to centerpiece sculpture.`
+    );
+    return true;
+  }
+
   private attachGlobalDropAndKeys(): void {
     const hasDraggedFiles = (e: DragEvent): boolean => {
       if ((e.dataTransfer?.files?.length ?? 0) > 0) return true;
@@ -937,7 +1431,14 @@ export class StudioApp extends xb.Script {
       return types ? Array.from(types).includes('Files') : false;
     };
 
+    const hasDraggedPbrSwatch = (e: DragEvent): boolean => {
+      if (this.activeDragPbrId) return true;
+      const types = e.dataTransfer?.types;
+      return types ? Array.from(types).includes('application/x-samscene-pbr') : false;
+    };
+
     const onDragEnter = (e: DragEvent) => {
+      if (hasDraggedPbrSwatch(e)) return;
       if (!hasDraggedFiles(e)) return;
       e.preventDefault();
       this.dragDepth++;
@@ -945,6 +1446,29 @@ export class StudioApp extends xb.Script {
     };
 
     const onDragOver = (e: DragEvent) => {
+      if (hasDraggedPbrSwatch(e)) {
+        const viewport = this.miniSam.getViewportElement();
+        if (viewport && viewport.contains(e.target as Node)) {
+          e.preventDefault();
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+          const preset = this.activeDragPbrId
+            ? PROCEDURAL_PBR_MATERIAL_MAP[this.activeDragPbrId]
+            : undefined;
+          const hit = this.raycastPbrTarget(e.clientX, e.clientY);
+          const presetLabel = preset ? preset.label : 'PBR Material';
+          if (hit) {
+            this.miniSam.setViewportDropHint(`Drop "${presetLabel}" onto ${hit.label}`);
+          } else {
+            this.miniSam.setViewportDropHint(
+              `Drop "${presetLabel}" onto sculpted stroke or sculpture (or open stage)`
+            );
+          }
+        } else {
+          this.miniSam.setViewportDropHint(null);
+        }
+        return;
+      }
+
       if (!hasDraggedFiles(e)) return;
       e.preventDefault();
       if (e.dataTransfer) {
@@ -953,6 +1477,12 @@ export class StudioApp extends xb.Script {
     };
 
     const onDragLeave = (e: DragEvent) => {
+      if (hasDraggedPbrSwatch(e)) {
+        if (e.relatedTarget === null) {
+          this.miniSam.setViewportDropHint(null);
+        }
+        return;
+      }
       if (!hasDraggedFiles(e)) return;
       e.preventDefault();
       if (e.relatedTarget === null) {
@@ -966,6 +1496,19 @@ export class StudioApp extends xb.Script {
     };
 
     const onDrop = async (e: DragEvent) => {
+      const pbrId =
+        e.dataTransfer?.getData('application/x-samscene-pbr') || this.activeDragPbrId;
+      if (pbrId && PROCEDURAL_PBR_MATERIAL_MAP[pbrId]) {
+        e.preventDefault();
+        this.activeDragPbrId = null;
+        this.miniSam.setViewportDropHint(null);
+        const viewport = this.miniSam.getViewportElement();
+        if (viewport && viewport.contains(e.target as Node)) {
+          this.applyPbrPresetToRaycastTarget(pbrId, e.clientX, e.clientY);
+        }
+        return;
+      }
+
       e.preventDefault();
       this.dragDepth = 0;
       this.miniSam.setDropOverlayVisible(false);
@@ -1011,6 +1554,8 @@ export class StudioApp extends xb.Script {
       } else if (e.key === 'Escape') {
         this.scenery.clearArmedPlacement();
         this.miniSam.setArmedPlacement(null);
+        this.activeDragPbrId = null;
+        this.miniSam.setViewportDropHint(null);
         this.stopMovie();
       }
     };
@@ -1159,6 +1704,10 @@ export class StudioApp extends xb.Script {
     this.miniSam.syncMood(beat.mood);
     this.stage.setExplodeAmount(beat.explodeAmount);
     this.miniSam.syncStageDynamics(beat.explodeAmount, this.stage.getSpinSpeed());
+    if (typeof beat.skyProgression === 'number') {
+      const sky = this.stage.applySkyConfig({ progression: beat.skyProgression }, false);
+      this.miniSam.syncSkyConfig(sky);
+    }
     this.stage.triggerTransitionEffect(beat.transitionType);
     this.cameraDirector.goToShot(beat.cameraShot, beat.transitionType);
   }
@@ -1358,6 +1907,443 @@ export class StudioApp extends xb.Script {
     }
   }
 
+  private handleExportIamScene(): void {
+    const cam = this.cameraDirector.getCameraState();
+    const skyCfg = this.stage.getSkyConfig();
+    const nodes: IamSceneNode[] = [
+      {
+        id: 'root',
+        name: 'World Root',
+        kind: 'group',
+        parentId: 'null',
+        visible: true,
+        transform: {
+          position: [0, 0, 0],
+          rotation: [0, 0, 0, 1],
+          scale: [1, 1, 1],
+        },
+      },
+      {
+        id: `subject_${this.activeSubjectId}`,
+        name: SUBJECT_MAP[this.activeSubjectId]?.label || this.activeSubjectId,
+        kind: 'cad_assembly',
+        parentId: 'root',
+        visible: true,
+        transform: {
+          position: [STAGE_POSITION.x, STAGE_POSITION.y, STAGE_POSITION.z],
+          rotation: [0, 0, 0, 1],
+          scale: [1, 1, 1],
+        },
+        provenance: {
+          sourceFormat: 'occt',
+          procedureId: 'cad.motor-bearing-end-plate@0.1.0',
+        },
+      },
+      {
+        id: 'main_camera',
+        name: 'Director Camera',
+        kind: 'camera',
+        parentId: 'root',
+        visible: true,
+        transform: {
+          position: cam.position,
+          rotation: [0, 0, 0, 1],
+          scale: [1, 1, 1],
+        },
+      },
+    ];
+
+    for (const item of this.scenery.serializeItems()) {
+      nodes.push({
+        id: item.id,
+        name: `${item.kind} (${item.id.slice(0, 6)})`,
+        kind: 'mesh',
+        parentId: 'root',
+        visible: item.visible,
+        transform: {
+          position: item.position,
+          rotation: [0, Math.sin(item.rotationY * 0.5), 0, Math.cos(item.rotationY * 0.5)],
+          scale: [item.scale, item.scale, item.scale],
+        },
+      });
+    }
+
+    const doc: IamSceneDocument = {
+      schemaVersion: 'iamscene.v1',
+      id: `iam_${Date.now().toString(36)}`,
+      name: `${this.miniSam.getMovieTitle()} (${this.activeEnvironmentId})`,
+      coordinateSystem: 'right-handed-y-up-meters',
+      environmentId: this.activeEnvironmentId,
+      subjectId: this.activeSubjectId,
+      finishId: this.activeFinishId,
+      triggerMode: skyCfg.triggerMode,
+      nodes,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const json = JSON.stringify(doc, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const filename = `primetech-${this.activeEnvironmentId}.iamscene.json`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    this.audioEngine.playStudioCue('ready');
+    this.miniSam.showToast(`Exported portable ${filename} (${nodes.length} nodes)`);
+  }
+
+  private handleSelectBrushPbrPreset(presetId: string): void {
+    const preset = PROCEDURAL_PBR_MATERIAL_MAP[presetId];
+    if (!preset) return;
+    const mat = this.stage.materials.createProceduralPbrMaterial(preset);
+    this.activeBrushPresetId = preset.id;
+    this.brush.setActiveMaterial(mat, preset.id);
+    this.miniSam.syncBrushPreset(preset.id);
+  }
+
+  private handleApplyPbrToAllStrokes(presetId: string): void {
+    const preset = PROCEDURAL_PBR_MATERIAL_MAP[presetId];
+    if (!preset) return;
+    this.handleSelectBrushPbrPreset(presetId);
+    if (this.brush.strokeCount === 0) {
+      const mat = this.stage.materials.createProceduralPbrMaterial(preset);
+      this.brush.addSampleSculptedRibbon(mat, preset.id);
+      this.audioEngine.playStudioCue('paint');
+      this.miniSam.showToast(`Created sculpted ribbon with ${preset.label}.`);
+      return;
+    }
+    const mat = this.stage.materials.createProceduralPbrMaterial(preset);
+    const updated = this.brush.applyMaterialToAllStrokes(mat, preset.id);
+    this.audioEngine.playStudioCue('paint');
+    this.miniSam.showToast(`Applied ${preset.label} to ${updated} sculpted stroke(s).`);
+  }
+
+  private handleApplyPbrToSubject(presetId: string): void {
+    const preset = PROCEDURAL_PBR_MATERIAL_MAP[presetId];
+    if (!preset) return;
+    this.handleSelectBrushPbrPreset(presetId);
+    const count = this.stage.applyProceduralMaterialToSubject(preset);
+    this.audioEngine.playStudioCue('paint');
+    this.miniSam.showToast(`Applied ${preset.label} across ${count} centerpiece mesh(es).`);
+  }
+
+  private handleAddSampleSculpt(presetId: string): void {
+    const preset = PROCEDURAL_PBR_MATERIAL_MAP[presetId] || PROCEDURAL_PBR_MATERIAL_MAP[this.activeBrushPresetId];
+    if (!preset) return;
+    this.handleSelectBrushPbrPreset(preset.id);
+    const mat = this.stage.materials.createProceduralPbrMaterial(preset);
+    this.brush.addSampleSculptedRibbon(mat, preset.id);
+    this.audioEngine.playStudioCue('paint');
+    this.miniSam.showToast(`Added sample 3D sculpted ribbon (${preset.label}). Drag swatches onto it!`);
+  }
+
+  private async refreshStudioTemplates(filters?: {
+    category?: string;
+    resource_kind?: string;
+    q?: string;
+  }): Promise<void> {
+    try {
+      this.studioTemplates = await fetchStudioTemplates(filters);
+      this.miniSam.syncStudioTemplates(this.studioTemplates);
+    } catch (err) {
+      console.warn('Could not load studio_templates:', err);
+    }
+  }
+
+  private async handleSaveSkyTemplate(): Promise<void> {
+    const cfg = this.stage.getSkyConfig();
+    try {
+      const tpl = await createStudioTemplate({
+        sku: `SKY-${cfg.presetId.toUpperCase()}-${Date.now().toString(36).toUpperCase()}`,
+        app_id: 'samscene',
+        resource_kind: cfg.triggerMode === 'orbit-time' ? 'sky_shader' : 'hover_scroll_scene',
+        pack_slug: cfg.presetId,
+        pack_title: cfg.title,
+        category: cfg.presetId,
+        title: cfg.title,
+        description: `Procedural sky dome (${cfg.triggerMode}) saved from SamScene.`,
+        use_case: `${cfg.triggerMode} sky backdrop`,
+        tags: [cfg.presetId, cfg.triggerMode, cfg.celestialBody],
+        specs: {
+          presetId: cfg.presetId,
+          triggerMode: cfg.triggerMode,
+          celestialBody: cfg.celestialBody,
+          cloudDensity: cfg.cloudDensity,
+          galaxyIntensity: cfg.galaxyIntensity,
+          auroraIntensity: cfg.auroraIntensity,
+        },
+        renderer_key: 'threejs-procedural-sky-dome',
+        status: 'active',
+        payload: { skyConfig: cfg },
+      });
+      this.audioEngine.playStudioCue('ready');
+      this.miniSam.showToast(`Saved "${tpl.title}" to studio_templates.`);
+      await this.refreshStudioTemplates();
+    } catch (err) {
+      this.miniSam.showToast(
+        err instanceof Error ? err.message : 'Failed to save sky template.'
+      );
+    }
+  }
+
+  private async handleGenerateCharacter(params: {
+    prompt: string;
+    stylePreset: CharacterStylePresetId;
+    referenceAssetIds: string[];
+    generatePortrait: boolean;
+    generateAnimationVideo: boolean;
+  }): Promise<void> {
+    this.miniSam.setGeneratingCharacter(true);
+    try {
+      const referenceImages = this.mediaAssets
+        .filter(
+          (a) =>
+            a.category === 'image' &&
+            Boolean(a.dataUrl) &&
+            (params.referenceAssetIds.length === 0 || params.referenceAssetIds.includes(a.id))
+        )
+        .slice(0, 3)
+        .map((a) => ({
+          name: a.name,
+          mimeType: a.mimeType,
+          data: a.dataUrl || '',
+        }));
+
+      const res = await generateCharacterFromMedia({
+        prompt: params.prompt,
+        stylePreset: params.stylePreset,
+        referenceImages,
+        generatePortrait: params.generatePortrait,
+        generateAnimationVideo: params.generateAnimationVideo,
+      });
+
+      this.generatedCharacters.unshift(res.character);
+      this.miniSam.syncGeneratedCharacters(this.generatedCharacters);
+      const item = this.scenery.placeCharacterRig(res.character);
+      this.cameraDirector.focusOnWorldPoint(item.group.position, 'glide');
+      if (res.suggestedSky) {
+        const applied = this.stage.applySkyConfig(res.suggestedSky, true);
+        this.miniSam.syncSkyConfig(applied);
+      }
+      this.audioEngine.playStudioCue('ready');
+      this.miniSam.showToast(
+        `Created 3D Cartoon Actor "${res.character.name}" (${res.character.archetype}) & staged in 3D!`
+      );
+      await this.refreshStudioTemplates();
+    } catch (err) {
+      this.miniSam.showToast(
+        err instanceof Error ? err.message : 'Character Studio generation failed.'
+      );
+    } finally {
+      this.miniSam.setGeneratingCharacter(false);
+    }
+  }
+
+  private async handleExtractVideoScenePack(params: {
+    assetId?: string;
+    useReferenceVideo?: boolean;
+    prompt: string;
+    generateCoverArt: boolean;
+    generateAnimationVideo: boolean;
+  }): Promise<void> {
+    this.miniSam.setExtractingVideoPack(true);
+    try {
+      let videoName = 'Sky Reference Video';
+      let keyframes: ExtractedVideoKeyframe[] | undefined;
+
+      if (params.useReferenceVideo) {
+        videoName = 'Screen_Recording_Sky_Reference.mov';
+        this.miniSam.showToast('Sampling keyframes from bundled sky recording...');
+        const sampled = await extractVideoKeyframes(REFERENCE_SKY_VIDEO_PATH, 5);
+        keyframes = sampled.keyframes;
+      } else if (params.assetId) {
+        const asset = this.mediaAssets.find((a) => a.id === params.assetId);
+        if (!asset || asset.category !== 'video') {
+          throw new Error('Select a video asset in the registry first.');
+        }
+        videoName = asset.name;
+        if (asset.extractedKeyframes && asset.extractedKeyframes.length > 0) {
+          keyframes = asset.extractedKeyframes;
+        } else if (asset.objectUrl) {
+          const sampled = await extractVideoKeyframes(asset.objectUrl, 5);
+          keyframes = sampled.keyframes;
+          asset.extractedKeyframes = keyframes;
+          this.miniSam.syncMediaAssets(this.mediaAssets);
+        }
+      }
+
+      if (!keyframes || keyframes.length === 0) {
+        throw new Error('Could not extract any video keyframes from this file.');
+      }
+
+      const pack = await generateScenePackFromVideoKeyframes({
+        prompt: params.prompt,
+        videoName,
+        keyframes,
+        generateCoverArt: params.generateCoverArt,
+        generateAnimationVideo: params.generateAnimationVideo,
+      });
+
+      this.latestScenePack = pack;
+      this.miniSam.syncScenePack(pack);
+      this.applyScenePack(pack);
+      await this.refreshStudioTemplates();
+    } catch (err) {
+      this.miniSam.showToast(
+        err instanceof Error ? err.message : 'Video keyframe Scene Pack extraction failed.'
+      );
+    } finally {
+      this.miniSam.setExtractingVideoPack(false);
+    }
+  }
+
+  private applyScenePack(pack: ScenePackResult): void {
+    this.isRestoringManifest = true;
+    try {
+      if (pack.environmentId && ENVIRONMENT_LEVEL_MAP[pack.environmentId]) {
+        this.activeEnvironmentId = pack.environmentId;
+        this.stage.setEnvironmentLevel(pack.environmentId);
+        this.miniSam.syncEnvironment(pack.environmentId);
+      }
+      if (pack.moodId) {
+        this.activeMoodId = pack.moodId;
+        this.stage.setAtmosphereMood(pack.moodId, true);
+        this.miniSam.syncMood(pack.moodId);
+        this.miniSam.syncLightingState(this.stage.getLightingState());
+      }
+      if (pack.subjectId && SUBJECT_MAP[pack.subjectId]) {
+        this.activeSubjectId = pack.subjectId;
+        this.stage.setSubject(pack.subjectId);
+        this.deckCard?.setActiveSubject(pack.subjectId);
+        this.miniSam.syncSubject(pack.subjectId);
+      }
+      if (pack.finishId && FINISH_MAP[pack.finishId]) {
+        this.activeFinishId = pack.finishId;
+        this.stage.setFinish(pack.finishId);
+        this.deckCard?.setActiveFinish(pack.finishId);
+        this.miniSam.syncFinish(pack.finishId);
+      }
+      if (pack.skyConfig) {
+        const appliedSky = this.stage.applySkyConfig(pack.skyConfig, true);
+        this.miniSam.syncSkyConfig(appliedSky);
+      }
+      if (pack.extractedTextures && pack.extractedTextures.length > 0) {
+        this.stage.applyExtractedTextures(pack.extractedTextures);
+      }
+      if (Array.isArray(pack.sceneryProps) && pack.sceneryProps.length > 0) {
+        this.scenery.clearAll(false);
+        for (const prop of pack.sceneryProps) {
+          this.scenery.placePropAt(
+            prop.type,
+            new THREE.Vector3(prop.position[0], prop.position[1], prop.position[2]),
+            prop.rotationY,
+            false
+          );
+        }
+      }
+      if (pack.character) {
+        if (!this.generatedCharacters.some((c) => c.id === pack.character!.id)) {
+          this.generatedCharacters.unshift(pack.character);
+          this.miniSam.syncGeneratedCharacters(this.generatedCharacters);
+        }
+        this.scenery.placeCharacterRig(pack.character, undefined, false);
+      }
+      if (Array.isArray(pack.beats) && pack.beats.length > 0) {
+        this.miniSam.setMovieTitle(pack.packTitle);
+        this.miniSam.setStoryboardBeats(pack.beats, 0);
+      }
+      if (pack.cameraPath && pack.cameraPath.length > 0) {
+        this.previewExtractedCameraKeyframe(pack.cameraPath[0]);
+      }
+      this.refreshHudSummary();
+    } finally {
+      this.isRestoringManifest = false;
+    }
+
+    this.recordProjectMutation();
+    this.audioEngine.playStudioCue('ready');
+    this.miniSam.showToast(
+      `Applied Scene Pack "${pack.packTitle}" (${pack.extractedTextures?.length || 0} textures, ${
+        pack.cameraPath?.length || 0
+      } camera keyframes)!`
+    );
+  }
+
+  private previewExtractedCameraKeyframe(kf: ExtractedCameraKeyframe): void {
+    this.cameraDirector.setCameraState(kf.position, kf.target);
+    const sky = this.stage.applySkyConfig({ progression: kf.skyProgression }, true);
+    this.miniSam.syncSkyConfig(sky);
+    this.miniSam.showToast(
+      `Camera Path @ ${kf.timestampSec.toFixed(1)}s — ${kf.motionNote}`
+    );
+  }
+
+  private handleApplyTemplateRecord(tpl: StudioTemplateRecord): void {
+    const payload = tpl.payload || {};
+    if (payload.scenePack && typeof payload.scenePack === 'object') {
+      this.applyScenePack(payload.scenePack as ScenePackResult);
+      return;
+    }
+    if (payload.skyConfig && typeof payload.skyConfig === 'object') {
+      const sky = this.stage.applySkyConfig(payload.skyConfig as Partial<SkySceneConfig>, true);
+      this.miniSam.syncSkyConfig(sky);
+      this.audioEngine.playStudioCue('switch');
+      this.miniSam.showToast(`Applied sky template "${tpl.title}".`);
+      this.recordProjectMutation();
+      return;
+    }
+    if (payload.character && typeof payload.character === 'object') {
+      const char = payload.character as CharacterRigSpec;
+      const item = this.scenery.placeCharacterRig(char);
+      this.cameraDirector.focusOnWorldPoint(item.group.position, 'glide');
+      this.audioEngine.playStudioCue('ready');
+      this.miniSam.showToast(`Spawned character "${char.name}" from studio_templates.`);
+      return;
+    }
+    const presetMatch = SKY_PRESET_MAP[tpl.category as SkyPresetId];
+    if (presetMatch) {
+      const cfg = this.stage.setSkyPreset(presetMatch.id);
+      this.miniSam.syncSkyConfig(cfg);
+      this.miniSam.showToast(`Loaded template preset "${tpl.title}".`);
+    }
+  }
+
+  private async handleDeleteTemplateRecord(id: string): Promise<void> {
+    try {
+      await deleteStudioTemplate(id);
+      await this.refreshStudioTemplates();
+      this.miniSam.showToast('Deleted record from studio_templates.');
+    } catch (err) {
+      this.miniSam.showToast(
+        err instanceof Error ? err.message : 'Failed to delete template.'
+      );
+    }
+  }
+
+  private async handleExportTemplatesSql(): Promise<void> {
+    try {
+      const sqlText = await exportStudioTemplatesSql();
+      const blob = new Blob([sqlText], { type: 'application/sql' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'samscene_studio_templates.sql';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      this.miniSam.showToast('Exported studio_templates SQL seed file.');
+    } catch (err) {
+      this.miniSam.showToast(
+        err instanceof Error ? err.message : 'Failed to export studio_templates SQL.'
+      );
+    }
+  }
+
   update(): void {
     const rawDt = xb.getDeltaTime();
     const dt = rawDt > 0 ? Math.min(0.05, rawDt) : 1 / 60;
@@ -1366,7 +2352,7 @@ export class StudioApp extends xb.Script {
 
     this.cameraDirector.update(dt);
     this.stage.updateStage(elapsed, dt, audio);
-    this.scenery.updateScenery(dt);
+    this.scenery.updateScenery(dt, elapsed, audio);
     this.miniSam?.updateAudioVisualizer(audio, this.audioEngine.getPlaybackProgress());
 
     if (!this.uiValidated) {
@@ -1399,6 +2385,7 @@ export class StudioApp extends xb.Script {
     this.mediaAssets = [];
     this.cameraDirector.dispose();
     this.miniSam?.dispose();
+    this.showcase?.dispose();
     this.audioEngine.dispose();
   }
 }

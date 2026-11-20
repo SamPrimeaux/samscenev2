@@ -10,6 +10,7 @@ import type {
   EnvironmentLevelId,
   ExtractedSurfaceTextureSpec,
   FinishId,
+  ProceduralPbrMaterialPreset,
   SkyPresetId,
   SkySceneConfig,
   SkyTriggerMode,
@@ -17,7 +18,7 @@ import type {
   StudioSubjectInstance,
   TransitionType,
 } from '../types.ts';
-import { EnvironmentLevelManager } from './environmentLevels.ts';
+import { EnvironmentLevelManager, type HeroAssetPreviewMode } from './environmentLevels.ts';
 import { detectSoftwareWebGL, StudioMaterialLibrary } from './materials.ts';
 import { SkyGenerator } from './skyGenerator.ts';
 import { createStudioSubject } from './subjects.ts';
@@ -58,11 +59,14 @@ export class StudioStage extends xb.Script {
   private pedestalGroup = new THREE.Group();
   private micGroup = new THREE.Group();
   private speakerGroup = new THREE.Group();
+  private floorRingMesh!: THREE.Mesh;
+  private outerRingMesh!: THREE.Mesh;
   private turntablePlatter = new THREE.Group();
   private subjectAnchor = new THREE.Group();
   private spectrumMesh!: THREE.InstancedMesh;
   private speakerVuRing!: THREE.Mesh;
   private levelManager!: EnvironmentLevelManager;
+  private heroPresentationMode = false;
 
   private activeSubject: StudioSubjectInstance | null = null;
   private currentSubjectId: StudioSubjectId = 'astrolabe';
@@ -231,15 +235,15 @@ export class StudioStage extends xb.Script {
 
     const floorRingGeo = this.trackGeo(new THREE.RingGeometry(1.18, 1.2, 64));
     floorRingGeo.rotateX(-Math.PI / 2);
-    const floorRing = new THREE.Mesh(floorRingGeo, this.materials.secondaryMetal);
-    floorRing.position.y = 0.004;
-    this.stageGroup.add(floorRing);
+    this.floorRingMesh = new THREE.Mesh(floorRingGeo, this.materials.secondaryMetal);
+    this.floorRingMesh.position.y = 0.004;
+    this.stageGroup.add(this.floorRingMesh);
 
     const outerRingGeo = this.trackGeo(new THREE.RingGeometry(2.65, 2.68, 64));
     outerRingGeo.rotateX(-Math.PI / 2);
-    const outerRing = new THREE.Mesh(outerRingGeo, this.materials.secondaryMetal);
-    outerRing.position.y = 0.004;
-    this.stageGroup.add(outerRing);
+    this.outerRingMesh = new THREE.Mesh(outerRingGeo, this.materials.secondaryMetal);
+    this.outerRingMesh.position.y = 0.004;
+    this.stageGroup.add(this.outerRingMesh);
 
     this.buildPedestal();
     this.buildMicStandProp();
@@ -519,29 +523,101 @@ export class StudioStage extends xb.Script {
     }
   }
 
+  public getSubjectMeshes(): THREE.Mesh[] {
+    if (!this.activeSubject) return [];
+    const meshes: THREE.Mesh[] = [];
+    this.activeSubject.root.traverse((obj) => {
+      const m = obj as THREE.Mesh;
+      if (m.isMesh && m.material !== this.materials.contactShadow) {
+        meshes.push(m);
+      }
+    });
+    return meshes;
+  }
+
+  public applyProceduralMaterialToSubject(
+    preset: ProceduralPbrMaterialPreset,
+    targetMesh?: THREE.Mesh
+  ): number {
+    if (!this.activeSubject) return 0;
+    const mat = this.materials.createProceduralPbrMaterial(preset);
+    if (targetMesh) {
+      let belongs = false;
+      this.activeSubject.root.traverse((obj) => {
+        if (obj === targetMesh) belongs = true;
+      });
+      if (belongs) {
+        targetMesh.material = mat;
+        return 1;
+      }
+    }
+    let count = 0;
+    for (const mesh of this.activeSubject.primaryMetalMeshes) {
+      mesh.material = mat;
+      count++;
+    }
+    return count;
+  }
+
+  public setHeroPresentationMode(heroOnly: boolean, mode?: HeroAssetPreviewMode): void {
+    this.heroPresentationMode = heroOnly;
+    this.levelManager?.setHeroPresentation(heroOnly, mode);
+    this.syncPresentationVisibility();
+  }
+
+  public setHeroAssetMode(mode: HeroAssetPreviewMode): void {
+    this.levelManager?.setHeroAssetMode(mode);
+  }
+
+  public getHeroAssetMode(): HeroAssetPreviewMode {
+    return this.levelManager?.getHeroAssetMode() || 'full-hero';
+  }
+
+  private syncPresentationVisibility(): void {
+    const immersiveOnly = this.skyGenerator.getConfig().immersiveSkyOnly;
+    this.stageGroup.visible = !immersiveOnly;
+
+    const hideStageFurniture =
+      this.heroPresentationMode && this.currentEnvironmentId === 'primetech-vault';
+    if (this.pedestalGroup) this.pedestalGroup.visible = !hideStageFurniture;
+    if (this.micGroup) this.micGroup.visible = !hideStageFurniture;
+    if (this.speakerGroup) this.speakerGroup.visible = !hideStageFurniture;
+    if (this.floorRingMesh) this.floorRingMesh.visible = !hideStageFurniture;
+    if (this.outerRingMesh) this.outerRingMesh.visible = !hideStageFurniture;
+
+    if (this.floorMesh) {
+      this.floorMesh.visible =
+        !immersiveOnly &&
+        !hideStageFurniture &&
+        (this.currentEnvironmentId === 'studio-stage' ||
+          this.currentEnvironmentId === 'orbital-lab' ||
+          this.currentEnvironmentId === 'iamscene-circuit');
+    }
+  }
+
   public setEnvironmentLevel(id: EnvironmentLevelId): void {
     this.currentEnvironmentId = id;
     this.levelManager?.setLevel(id);
-    if (this.floorMesh) {
-      this.floorMesh.visible =
-        !this.skyGenerator.getConfig().immersiveSkyOnly &&
-        (id === 'studio-stage' || id === 'orbital-lab');
-    }
+    this.syncPresentationVisibility();
   }
 
   public getEnvironmentLevelId(): EnvironmentLevelId {
     return this.currentEnvironmentId;
   }
 
+  public setWorldInteraction(nx: number, ny: number, scrollNorm: number): void {
+    this.levelManager?.setInteractionSignals(nx, ny, scrollNorm);
+  }
+
   public setSkyPreset(presetId: SkyPresetId): SkySceneConfig {
     const cfg = this.skyGenerator.setPreset(presetId);
-    this.syncImmersiveSkyVisibility(cfg.immersiveSkyOnly);
+    this.syncPresentationVisibility();
     return cfg;
   }
 
   public applySkyConfig(patch: Partial<SkySceneConfig>, immediate = false): SkySceneConfig {
     const cfg = this.skyGenerator.applyConfig(patch, immediate);
-    this.syncImmersiveSkyVisibility(cfg.immersiveSkyOnly);
+    this.syncPresentationVisibility();
     return cfg;
   }
 
@@ -560,16 +636,6 @@ export class StudioStage extends xb.Script {
 
   public handleSkyScrollDelta(deltaY: number): number {
     return this.skyGenerator.handleScrollDelta(deltaY);
-  }
-
-  private syncImmersiveSkyVisibility(immersiveOnly: boolean): void {
-    this.stageGroup.visible = !immersiveOnly;
-    if (this.floorMesh) {
-      this.floorMesh.visible =
-        !immersiveOnly &&
-        (this.currentEnvironmentId === 'studio-stage' ||
-          this.currentEnvironmentId === 'orbital-lab');
-    }
   }
 
   public setAtmosphereMood(id: AtmosphereMoodId, immediate = false): void {

@@ -1,6 +1,12 @@
 import type * as THREE from 'three';
 
-export type StudioSubjectId = 'astrolabe' | 'pavilion' | 'vox' | 'terrarium';
+export type StudioSubjectId =
+  | 'astrolabe'
+  | 'pavilion'
+  | 'vox'
+  | 'terrarium'
+  | 'primetech-cadmesh'
+  | 'primetech-plinth';
 
 export type FinishId = 'gold' | 'titanium' | 'obsidian' | 'copper' | 'iridescent';
 
@@ -9,7 +15,9 @@ export type EnvironmentLevelId =
   | 'architectural-atrium'
   | 'twilight-forest'
   | 'coastal-observatory'
-  | 'orbital-lab';
+  | 'orbital-lab'
+  | 'primetech-vault'
+  | 'iamscene-circuit';
 
 export type SkyPresetId =
   | 'studio-void'
@@ -338,6 +346,40 @@ export interface FinishPreset {
   emissiveIntensity: number;
 }
 
+export type ProceduralPbrCategory = 'all' | 'metal' | 'stone' | 'glass' | 'organic';
+
+export type ProceduralPbrPattern =
+  | 'brushed-metal'
+  | 'veined-marble'
+  | 'hex-carbon'
+  | 'hammered-copper'
+  | 'frosted-crystal'
+  | 'walnut-grain'
+  | 'iridescent-pearl'
+  | 'lava-basalt';
+
+export interface ProceduralPbrMaterialPreset {
+  id: string;
+  label: string;
+  category: Exclude<ProceduralPbrCategory, 'all'>;
+  description: string;
+  swatchGradient: string;
+  colorHex: string;
+  secondaryHex: string;
+  emissiveHex: string;
+  emissiveIntensity: number;
+  metalness: number;
+  roughness: number;
+  clearcoat: number;
+  clearcoatRoughness: number;
+  iridescence: number;
+  anisotropy: number;
+  transmission: number;
+  ior: number;
+  patternType: ProceduralPbrPattern;
+  bumpScale: number;
+}
+
 export interface AtmospherePreset {
   id: AtmosphereMoodId;
   label: string;
@@ -573,3 +615,88 @@ export interface SamSceneProjectManifest {
   sceneryItems: SerializedSceneryItem[];
   savedImages: DroppedImageAsset[];
 }
+
+export interface IamSceneNode {
+  id: string;
+  name: string;
+  kind: 'group' | 'mesh' | 'light' | 'camera' | 'cad_assembly';
+  parentId: string;
+  visible: boolean;
+  transform: {
+    position: [number, number, number];
+    rotation: [number, number, number, number];
+    scale: [number, number, number];
+  };
+  provenance?: {
+    sourceFormat: 'parametric' | 'occt' | 'ifc' | 'glb';
+    procedureId?: string;
+    sha256?: string;
+  };
+}
+
+export interface IamSceneDocument {
+  schemaVersion: 'iamscene.v1';
+  id: string;
+  name: string;
+  coordinateSystem: 'right-handed-y-up-meters';
+  environmentId: EnvironmentLevelId;
+  subjectId: StudioSubjectId;
+  finishId: FinishId;
+  triggerMode: SkyTriggerMode;
+  nodes: IamSceneNode[];
+  updatedAt: string;
+}
+
+export interface PrimeTechEcosystemSnapshot {
+  tools: Array<{
+    id: string;
+    tool_name: string;
+    display_name: string;
+    tool_category: string;
+    handler_type: string;
+    description: string;
+    risk_level: string;
+  }>;
+  skills: Array<{
+    id: string;
+    name: string;
+    slash_trigger: string;
+    npm_package_name: string;
+    npm_version: string;
+    description: string;
+    access_mode: string;
+  }>;
+  cadJobs: Array<{
+    id: string;
+    engine: string;
+    prompt: string;
+    status: string;
+    task_type: string;
+    model_formats: string;
+    progress_pct: number;
+  }>;
+  workflows: Array<{
+    id: string;
+    workflow_key: string;
+    display_name: string;
+    description: string;
+    lifecycle: string;
+    entry_node_key: string;
+  }>;
+  workflowEdges: Array<{
+    id: string;
+    workflow_id: string;
+    from_node_key: string;
+    to_node_key: string;
+    condition_type: string;
+  }>;
+  packages: Array<{
+    name: string;
+    version: string;
+    visibility: 'Private' | 'Public';
+    releaseTrain?: string;
+    role: string;
+    owner: string;
+  }>;
+}
+

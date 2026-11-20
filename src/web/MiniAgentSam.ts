@@ -1,11 +1,16 @@
 import {
   ATMOSPHERE_LIST,
   CAMERA_SHOTS,
+  CHARACTER_STYLE_PRESETS,
   DEFAULT_STORYBOARD_BEATS,
   DEFAULT_STYLE_PRESETS,
   ENVIRONMENT_LEVELS,
   FINISH_LIST,
+  PROCEDURAL_PBR_MATERIALS,
+  PROCEDURAL_PBR_MATERIAL_MAP,
   SCENERY_PROP_OPTIONS,
+  SKY_PRESETS,
+  SKY_TRIGGER_MODES,
   SUBJECT_LIST,
   TRANSITION_OPTIONS,
   VOICE_OPTIONS,
@@ -16,31 +21,40 @@ import type {
   AtmosphereMoodId,
   AudioLevels,
   CameraShotId,
+  CharacterRigSpec,
+  CharacterStylePresetId,
   DroppedImageAsset,
   DynamicLightingState,
   EnvironmentLevelId,
+  ExtractedCameraKeyframe,
   FinishId,
   ImportedAssetCategory,
   IngestProgressState,
   MovieBeat,
+  ProceduralPbrCategory,
   SamSceneProjectManifest,
+  ScenePackResult,
   SceneryPropType,
   SelectedObjectDetails,
+  SkyPresetId,
+  SkySceneConfig,
+  SkyTriggerMode,
   StudioMediaAsset,
   StudioSubjectId,
+  StudioTemplateRecord,
   TransitionType,
   TtsMode,
   TtsRequest,
   VoiceName,
 } from '../types.ts';
 
-type SideTab = 'sam' | 'scenery' | 'lighting' | 'walkthrough' | 'assets';
+type SideTab = 'sam' | 'scenery' | 'materials' | 'lighting' | 'walkthrough' | 'assets';
 type SideViewMode = 'panel' | 'split' | 'canvas';
 type DockSide = 'left' | 'right';
 type AssetFilter = 'all' | ImportedAssetCategory;
 
 const MULTI_FILE_ACCEPT =
-  '.glb,.gltf,.obj,.stl,.ply,.fbx,.dae,.ifc,.srt,.vtt,.txt,.md,.json,.mp4,.webm,.mov,.mp3,.wav,.ogg,.m4a,.opus,.aac,.png,.jpg,.jpeg,.webp,.gif,.samscene.json';
+  '.glb,.gltf,.obj,.stl,.ply,.fbx,.dae,.ifc,.srt,.vtt,.txt,.md,.json,.mp4,.webm,.mov,.mp3,.wav,.ogg,.m4a,.opus,.aac,.png,.jpg,.jpeg,.webp,.gif,.samscene.json,.iamscene.json';
 
 export interface MiniAgentSamCallbacks {
   onSelectSubject: (id: StudioSubjectId) => void;
@@ -103,6 +117,7 @@ export interface MiniAgentSamCallbacks {
   onAssistScript: (mode: TtsMode) => Promise<string>;
   onExportScene: () => Promise<void>;
   onExportProjectBundle: () => void;
+  onExportIamScene: () => void;
   onSaveProjectSlot: (name: string) => void;
   onLoadProjectSlot: (id: string) => void;
   onDeleteProjectSlot: (id: string) => void;
@@ -110,6 +125,42 @@ export interface MiniAgentSamCallbacks {
   onRedo: () => void;
   onProjectStateChange: () => void;
   onEnterXr: () => void;
+  onSelectBrushPbrPreset: (presetId: string) => void;
+  onStartPbrDrag: (presetId: string | null) => void;
+  onApplyPbrToAllStrokes: (presetId: string) => void;
+  onApplyPbrToSubject: (presetId: string) => void;
+  onAddSampleSculpt: (presetId: string) => void;
+  onSelectSkyPreset: (presetId: SkyPresetId) => void;
+  onUpdateSkyConfig: (patch: Partial<SkySceneConfig>) => void;
+  onSetSkyTriggerMode: (mode: SkyTriggerMode) => void;
+  onSaveSkyTemplate: () => Promise<void>;
+  onGenerateCharacter: (params: {
+    prompt: string;
+    stylePreset: CharacterStylePresetId;
+    referenceAssetIds: string[];
+    generatePortrait: boolean;
+    generateAnimationVideo: boolean;
+  }) => Promise<void>;
+  onPlaceCharacter: (character: CharacterRigSpec) => void;
+  onSpeakCharacterIntro: (character: CharacterRigSpec) => Promise<void>;
+  onExtractVideoScenePack: (params: {
+    assetId?: string;
+    useReferenceVideo?: boolean;
+    prompt: string;
+    generateCoverArt: boolean;
+    generateAnimationVideo: boolean;
+  }) => Promise<void>;
+  onApplyScenePack: (pack: ScenePackResult) => void;
+  onPreviewCameraKeyframe: (kf: ExtractedCameraKeyframe) => void;
+  onRefreshTemplates: (filters?: {
+    category?: string;
+    resource_kind?: string;
+    q?: string;
+  }) => Promise<void>;
+  onApplyTemplateRecord: (template: StudioTemplateRecord) => void;
+  onDeleteTemplateRecord: (id: string) => Promise<void>;
+  onExportTemplatesSql: () => Promise<void>;
+  onOpenShowcase: () => void;
 }
 
 function escapeHtml(text: string): string {
@@ -158,6 +209,7 @@ export class MiniAgentSam {
   private ingestBarFillEl!: HTMLDivElement;
   private armedBannerEl!: HTMLDivElement;
   private armedBannerTextEl!: HTMLSpanElement;
+  private viewportDropHintEl!: HTMLDivElement;
   private exportMenuEl!: HTMLDivElement;
 
   private activeTab: SideTab = 'sam';
@@ -172,6 +224,9 @@ export class MiniAgentSam {
   private activeFinish: FinishId = 'gold';
   private activeEnvironment: EnvironmentLevelId = 'studio-stage';
   private activeMood: AtmosphereMoodId = 'studio';
+  private activePbrPresetId = 'pbr-brushed-gold';
+  private pbrCategoryFilter: ProceduralPbrCategory = 'all';
+  private skyConfig: SkySceneConfig = { ...SKY_PRESETS[0].config };
   private lightingState: DynamicLightingState = {
     keyIntensity: 2.6,
     ambientHue: 217,
@@ -195,6 +250,26 @@ export class MiniAgentSam {
   private isComposing = false;
   private isPlayingMovie = false;
   private playingBeatIndex = -1;
+
+  // Character Studio state
+  private characterPrompt = '';
+  private characterStylePreset: CharacterStylePresetId = 'pixar-cinematic';
+  private selectedCharRefAssetIds: string[] = [];
+  private charGenPortrait = true;
+  private charGenVideo = false;
+  private isGeneratingCharacter = false;
+  private generatedCharacters: CharacterRigSpec[] = [];
+
+  // Video Keyframe Scene Pack & studio_templates state
+  private videoPackPrompt = '';
+  private selectedVideoAssetId = '';
+  private videoGenCoverArt = true;
+  private videoGenAnimation = false;
+  private isExtractingVideoPack = false;
+  private latestScenePack: ScenePackResult | null = null;
+  private studioTemplates: StudioTemplateRecord[] = [];
+  private templateKindFilter = 'all';
+  private templateSearch = '';
 
   private mediaAssets: StudioMediaAsset[] = [];
   private assetFilter: AssetFilter = 'all';
@@ -224,10 +299,19 @@ export class MiniAgentSam {
 
   constructor(callbacks: MiniAgentSamCallbacks) {
     this.callbacks = callbacks;
+    this.collapsed = typeof window !== 'undefined' && window.innerWidth <= 720;
     this.root = document.createElement('div');
     this.root.className = 'ws-shell';
     this.buildShell();
     document.body.prepend(this.root);
+    this.applyLayoutState();
+    this.render();
+  }
+
+  public openTab(tab: SideTab, expand = true): void {
+    this.activeTab = tab;
+    if (expand) this.collapsed = false;
+    if (this.viewMode === 'canvas') this.viewMode = 'split';
     this.applyLayoutState();
     this.render();
   }
@@ -253,6 +337,10 @@ export class MiniAgentSam {
     this.root.innerHTML = `
       <aside class="ws-rail" aria-label="SamScene workspace navigation">
         <div class="ws-rail-group">
+          <button type="button" class="ws-rail-btn" id="wsOpenShowcaseBtn" title="PrimeTech Showcase &amp; SamScene Case Study">
+            <svg width="18" height="18" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><polygon points="6,13 11,5 19,5 16,13"/><polygon points="20,6 27,13 22,20 17,13"/><polygon points="12,18 23,18 19,23 9,23"/><polygon points="6,14 10,14 10,27 6,22"/></svg>
+            <span>Prime</span>
+          </button>
           <button type="button" class="ws-rail-btn is-active" data-rail-tab="sam" title="Sam Composer &amp; Storyboard">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8L20 10.7l-6.1 1.9L12 18.4l-1.9-5.8L4 10.7l6.1-1.9L12 3z"/></svg>
             <span>Sam</span>
@@ -261,15 +349,19 @@ export class MiniAgentSam {
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
             <span>Stage</span>
           </button>
-          <button type="button" class="ws-rail-btn" data-rail-tab="lighting" title="Dynamic Lighting &amp; Atmosphere">
+          <button type="button" class="ws-rail-btn" data-rail-tab="materials" title="Procedural PBR Material Library &amp; 3D Brush">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
+            <span>PBR</span>
+          </button>
+          <button type="button" class="ws-rail-btn" data-rail-tab="lighting" title="Dynamic Lighting, Sky Dome &amp; Galaxies">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="M6.34 17.66l-1.41 1.41"/><path d="M19.07 4.93l-1.41 1.41"/></svg>
-            <span>Lights</span>
+            <span>Sky/Lit</span>
           </button>
           <button type="button" class="ws-rail-btn" data-rail-tab="walkthrough" title="Direct Camera &amp; SamSpeak Voice Studio">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
             <span>Direct</span>
           </button>
-          <button type="button" class="ws-rail-btn" data-rail-tab="assets" title="Asset Library (GLB, IFC BIM, Video, Audio, Transcripts &amp; Projects)">
+          <button type="button" class="ws-rail-btn" data-rail-tab="assets" title="Asset Library, Video Keyframe Packs &amp; Templates">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
             <span>Assets</span>
           </button>
@@ -327,10 +419,11 @@ export class MiniAgentSam {
       <main class="ws-viewport" id="wsViewport">
         <div class="ws-viewport-hud">
           <div class="ws-vp-left">
-            <button type="button" class="ws-vp-pill ws-vp-accent" id="wsExpandSideBtn" hidden>Open Studio (H)</button>
+            <button type="button" class="ws-vp-pill ws-vp-accent" id="wsExpandSideBtn" hidden>Studio Tools</button>
+            <button type="button" class="ws-vp-pill" id="wsHudShowcaseBtn" title="Return to PrimeTech Showcase &amp; Case Study">PrimeTech</button>
             <div class="ws-vp-badge">
               <strong>SAMSCENE</strong>
-              <span id="wsBrandStatus">Astrolabe • Soundstage • Studio</span>
+              <span id="wsBrandStatus">PrimeTech • CadMesh • Vault</span>
             </div>
           </div>
           <div class="ws-vp-right">
@@ -353,6 +446,10 @@ export class MiniAgentSam {
                   <span>Save Project (.samscene.json)</span>
                   <small>Portable state, lighting, beats &amp; settings</small>
                 </button>
+                <button type="button" class="ws-export-item" id="wsExportIamSceneAction">
+                  <span>Export IAMScene (.iamscene.json)</span>
+                  <small>Declarative schemaVersion iamscene.v1 graph</small>
+                </button>
               </div>
             </div>
             <button type="button" class="ws-vp-pill" id="wsResetCamBtn">Reset View</button>
@@ -363,6 +460,8 @@ export class MiniAgentSam {
           <span id="wsArmedBannerText">Click anywhere on the stage floor to place</span>
           <button type="button" class="ws-mini-btn" id="wsCancelArmBtn">Cancel (Esc)</button>
         </div>
+
+        <div class="ws-pbr-hint-banner" id="wsViewportDropHint" hidden></div>
 
         <div class="ws-ingest-loader" id="wsIngestLoader" role="status" aria-live="polite" hidden>
           <div class="ws-spinner" aria-hidden="true"></div>
@@ -409,6 +508,7 @@ export class MiniAgentSam {
     this.ingestBarFillEl = this.root.querySelector('#wsIngestBarFill') as HTMLDivElement;
     this.armedBannerEl = this.root.querySelector('#wsArmedBanner') as HTMLDivElement;
     this.armedBannerTextEl = this.root.querySelector('#wsArmedBannerText') as HTMLSpanElement;
+    this.viewportDropHintEl = this.root.querySelector('#wsViewportDropHint') as HTMLDivElement;
     this.exportMenuEl = this.root.querySelector('#wsExportMenu') as HTMLDivElement;
 
     this.attachShellEvents();
@@ -416,6 +516,14 @@ export class MiniAgentSam {
   }
 
   private attachShellEvents(): void {
+    this.root.querySelector('#wsOpenShowcaseBtn')?.addEventListener('click', () => {
+      this.callbacks.onOpenShowcase();
+    });
+
+    this.root.querySelector('#wsHudShowcaseBtn')?.addEventListener('click', () => {
+      this.callbacks.onOpenShowcase();
+    });
+
     this.root.querySelectorAll<HTMLButtonElement>('[data-rail-tab]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const next = btn.dataset.railTab as SideTab;
@@ -562,6 +670,12 @@ export class MiniAgentSam {
       this.exportMenuOpen = false;
       this.exportMenuEl.hidden = true;
       this.callbacks.onExportProjectBundle();
+    });
+
+    this.root.querySelector('#wsExportIamSceneAction')?.addEventListener('click', () => {
+      this.exportMenuOpen = false;
+      this.exportMenuEl.hidden = true;
+      this.callbacks.onExportIamScene();
     });
 
     this.root.querySelector('#wsResetCamBtn')?.addEventListener('click', () => {
@@ -711,8 +825,78 @@ export class MiniAgentSam {
     this.armedBannerEl.hidden = false;
   }
 
+  public setViewportDropHint(label: string | null): void {
+    if (!label) {
+      this.viewportDropHintEl.hidden = true;
+      this.viewportDropHintEl.textContent = '';
+      return;
+    }
+    this.viewportDropHintEl.textContent = label;
+    this.viewportDropHintEl.hidden = false;
+  }
+
+  public syncBrushPreset(presetId: string): void {
+    this.activePbrPresetId = presetId;
+    if (this.activeTab === 'materials') {
+      this.renderBody();
+    }
+  }
+
+  public syncSkyConfig(cfg: SkySceneConfig): void {
+    this.skyConfig = { ...cfg };
+    if (this.activeTab === 'lighting') {
+      const progRange = this.sideBodyEl.querySelector('#wsSkyProgRange') as HTMLInputElement | null;
+      const progVal = this.sideBodyEl.querySelector('#wsValSkyProg') as HTMLSpanElement | null;
+      if (progRange && progVal && document.activeElement !== progRange) {
+        progRange.value = String(cfg.progression);
+        progVal.textContent = `${Math.round(cfg.progression * 100)}%`;
+      } else if (!progRange) {
+        this.renderBody();
+      }
+    }
+  }
+
+  public syncGeneratedCharacters(chars: CharacterRigSpec[]): void {
+    this.generatedCharacters = [...chars];
+    if (this.activeTab === 'sam') {
+      this.renderBody();
+    }
+  }
+
+  public setGeneratingCharacter(busy: boolean): void {
+    this.isGeneratingCharacter = busy;
+    if (this.activeTab === 'sam') {
+      this.renderBody();
+    }
+  }
+
+  public syncScenePack(pack: ScenePackResult | null): void {
+    this.latestScenePack = pack;
+    if (this.activeTab === 'assets') {
+      this.renderBody();
+    }
+  }
+
+  public setExtractingVideoPack(busy: boolean): void {
+    this.isExtractingVideoPack = busy;
+    if (this.activeTab === 'assets') {
+      this.renderBody();
+    }
+  }
+
+  public syncStudioTemplates(templates: StudioTemplateRecord[]): void {
+    this.studioTemplates = [...templates];
+    if (this.activeTab === 'assets') {
+      this.renderBody();
+    }
+  }
+
   public syncMediaAssets(assets: StudioMediaAsset[]): void {
     this.mediaAssets = assets;
+    const videos = assets.filter((a) => a.category === 'video');
+    if (videos.length > 0 && !videos.some((v) => v.id === this.selectedVideoAssetId)) {
+      this.selectedVideoAssetId = videos[0].id;
+    }
     this.renderBody();
   }
 
@@ -781,7 +965,9 @@ export class MiniAgentSam {
   public syncBrushState(enabled: boolean, strokeCount: number): void {
     this.brushEnabled = enabled;
     this.strokeCount = strokeCount;
-    if (this.activeTab === 'scenery') this.renderBody();
+    if (this.activeTab === 'scenery' || this.activeTab === 'materials') {
+      this.renderBody();
+    }
   }
 
   public syncSelection(details: SelectedObjectDetails | null, totalCount: number): void {
@@ -1107,6 +1293,8 @@ export class MiniAgentSam {
       this.renderSamPanel(container);
     } else if (this.activeTab === 'scenery') {
       this.renderSceneryPanel(container);
+    } else if (this.activeTab === 'materials') {
+      this.renderMaterialsPanel(container);
     } else if (this.activeTab === 'lighting') {
       this.renderLightingPanel(container);
     } else if (this.activeTab === 'assets') {
@@ -1415,6 +1603,92 @@ export class MiniAgentSam {
             : ''
         }
       </section>
+
+      <section class="ws-card">
+        <div class="ws-row-between">
+          <span class="ws-label">Character Studio (Image → 3D Actor)</span>
+          <span class="ws-muted-note">Cartoon / Feature 3D</span>
+        </div>
+        <textarea class="ws-textarea" id="wsCharPrompt" rows="2" placeholder="Describe a character, or select an uploaded image below to turn into a 3D cartoon actor...">${escapeHtml(
+          this.characterPrompt
+        )}</textarea>
+        <div class="ws-row-gap">
+          <select class="ws-select ws-flex-1" id="wsCharStyle">
+            ${CHARACTER_STYLE_PRESETS.map(
+              (p) =>
+                `<option value="${p.id}" ${
+                  p.id === this.characterStylePreset ? 'selected' : ''
+                }>${escapeHtml(p.label)}</option>`
+            ).join('')}
+          </select>
+          <button type="button" class="ws-btn ws-btn-primary" id="wsGenCharBtn" ${
+            this.isGeneratingCharacter ? 'disabled' : ''
+          }>${this.isGeneratingCharacter ? 'Rigging Actor...' : 'Create 3D Actor'}</button>
+        </div>
+        <div class="ws-row-between">
+          <label class="ws-muted-note" style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+            <input type="checkbox" id="wsCharGenPortrait" ${this.charGenPortrait ? 'checked' : ''} />
+            Cinematic Portrait
+          </label>
+          <label class="ws-muted-note" style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+            <input type="checkbox" id="wsCharGenVideo" ${this.charGenVideo ? 'checked' : ''} />
+            Animate Clip
+          </label>
+        </div>
+        ${
+          images.length > 0
+            ? `
+          <div class="ws-chip-row">
+            ${images
+              .map((img) => {
+                const selected = this.selectedCharRefAssetIds.includes(img.id);
+                return `<button type="button" class="ws-chip ${
+                  selected ? 'is-active' : ''
+                }" data-char-ref-img="${escapeHtml(img.id)}">Ref: ${escapeHtml(
+                  img.name.slice(0, 14)
+                )}</button>`;
+              })
+              .join('')}
+          </div>
+        `
+            : ''
+        }
+        ${
+          this.generatedCharacters.length > 0
+            ? `
+          <div class="ws-char-list">
+            ${this.generatedCharacters
+              .map(
+                (ch) => `
+              <div class="ws-char-card">
+                ${
+                  ch.portraitDataUrl
+                    ? `<img class="ws-char-portrait" src="${ch.portraitDataUrl}" alt="${escapeHtml(
+                        ch.name
+                      )}" referrerpolicy="no-referrer" />`
+                    : ''
+                }
+                <div class="ws-char-meta">
+                  <strong>${escapeHtml(ch.name)}</strong>
+                  <span>${escapeHtml(ch.archetype)} • ${escapeHtml(ch.voiceName)}</span>
+                  <div class="ws-row-gap">
+                    <button type="button" class="ws-mini-btn ws-mini-accent" data-char-place="${escapeHtml(
+                      ch.id
+                    )}">Place 3D</button>
+                    <button type="button" class="ws-mini-btn" data-char-speak="${escapeHtml(
+                      ch.id
+                    )}">SamSpeak</button>
+                  </div>
+                </div>
+              </div>
+            `
+              )
+              .join('')}
+          </div>
+        `
+            : `<span class="ws-muted-note">1 image or prompt generates an articulated 3D cartoon actor + portrait + SamSpeak voice.</span>`
+        }
+      </section>
     `;
 
     const promptInput = container.querySelector('#wsPromptInput') as HTMLTextAreaElement;
@@ -1485,6 +1759,61 @@ export class MiniAgentSam {
 
     container.querySelector('#wsAddBeatBtn')?.addEventListener('click', () => {
       this.appendBlankBeat();
+    });
+
+    const charPromptEl = container.querySelector('#wsCharPrompt') as HTMLTextAreaElement;
+    const charStyleEl = container.querySelector('#wsCharStyle') as HTMLSelectElement;
+    const charPortraitEl = container.querySelector('#wsCharGenPortrait') as HTMLInputElement;
+    const charVideoEl = container.querySelector('#wsCharGenVideo') as HTMLInputElement;
+
+    charPromptEl?.addEventListener('input', () => {
+      this.characterPrompt = charPromptEl.value;
+    });
+    charStyleEl?.addEventListener('change', () => {
+      this.characterStylePreset = charStyleEl.value as CharacterStylePresetId;
+    });
+    charPortraitEl?.addEventListener('change', () => {
+      this.charGenPortrait = charPortraitEl.checked;
+    });
+    charVideoEl?.addEventListener('change', () => {
+      this.charGenVideo = charVideoEl.checked;
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('[data-char-ref-img]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.dataset.charRefImg;
+        if (!id) return;
+        const idx = this.selectedCharRefAssetIds.indexOf(id);
+        if (idx >= 0) this.selectedCharRefAssetIds.splice(idx, 1);
+        else this.selectedCharRefAssetIds.push(id);
+        this.renderBody();
+      });
+    });
+
+    container.querySelector('#wsGenCharBtn')?.addEventListener('click', () => {
+      void this.callbacks.onGenerateCharacter({
+        prompt:
+          this.characterPrompt.trim() ||
+          'Playful cosmic explorer companion with expressive eyes',
+        stylePreset: this.characterStylePreset,
+        referenceAssetIds: [...this.selectedCharRefAssetIds],
+        generatePortrait: this.charGenPortrait,
+        generateAnimationVideo: this.charGenVideo,
+      });
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('[data-char-place]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const found = this.generatedCharacters.find((c) => c.id === btn.dataset.charPlace);
+        if (found) this.callbacks.onPlaceCharacter(found);
+      });
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('[data-char-speak]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const found = this.generatedCharacters.find((c) => c.id === btn.dataset.charSpeak);
+        if (found) void this.callbacks.onSpeakCharacterIntro(found);
+      });
     });
 
     if (beat) {
@@ -1885,13 +2214,255 @@ export class MiniAgentSam {
     });
   }
 
+  private renderMaterialsPanel(container: HTMLElement): void {
+    const activePreset =
+      PROCEDURAL_PBR_MATERIAL_MAP[this.activePbrPresetId] || PROCEDURAL_PBR_MATERIALS[0];
+    const categories: Array<{ id: ProceduralPbrCategory; label: string }> = [
+      { id: 'all', label: 'All' },
+      { id: 'metal', label: 'Metals' },
+      { id: 'stone', label: 'Stone' },
+      { id: 'glass', label: 'Glass' },
+      { id: 'organic', label: 'Organic' },
+    ];
+
+    const filtered = PROCEDURAL_PBR_MATERIALS.filter(
+      (p) => this.pbrCategoryFilter === 'all' || p.category === this.pbrCategoryFilter
+    );
+
+    const cardsHtml = filtered
+      .map((p) => {
+        const isActive = p.id === this.activePbrPresetId;
+        const flags: string[] = [];
+        flags.push(`M ${Math.round(p.metalness * 100)}%`);
+        flags.push(`R ${Math.round(p.roughness * 100)}%`);
+        if (p.clearcoat > 0.4) flags.push('Coat');
+        if (p.iridescence > 0.3) flags.push('Iridescent');
+        if (p.transmission > 0.2) flags.push('Glass');
+
+        return `
+          <div class="ws-pbr-card ${isActive ? 'is-active' : ''}" draggable="true" data-pbr-id="${escapeHtml(
+            p.id
+          )}" title="Click to select for 3D Brush, or drag onto any sculpted stroke or 3D mesh">
+            <div class="ws-pbr-sphere" style="background:${p.swatchGradient}"></div>
+            <div class="ws-pbr-info">
+              <strong>${escapeHtml(p.label)}</strong>
+              <span class="ws-pbr-desc">${escapeHtml(p.description)}</span>
+              <span class="ws-pbr-stats">${flags.join(' • ')}</span>
+            </div>
+          </div>
+        `;
+      })
+      .join('');
+
+    container.innerHTML = `
+      <section class="ws-card">
+        <div class="ws-row-between">
+          <span class="ws-label">Procedural PBR Material Library</span>
+          <span class="ws-muted-note">Drag swatches onto 3D</span>
+        </div>
+        <div class="ws-context-bar">
+          <span>Active Swatch: <strong>${escapeHtml(activePreset.label)}</strong></span>
+          <span>• Sculpted Strokes: <strong>${this.strokeCount}</strong></span>
+        </div>
+        <div class="ws-row-gap">
+          <button type="button" class="ws-btn ws-flex-1 ${
+            this.brushEnabled ? 'ws-btn-accent' : 'ws-btn-primary'
+          }" id="wsMatToggleBrush">
+            ${this.brushEnabled ? '3D Brush: ON (Paint Canvas)' : 'Enable 3D Sculpt Brush'}
+          </button>
+          <button type="button" class="ws-btn ws-btn-ghost" id="wsMatAddSample" title="Create a 3D sculpted ribbon around the sculpture so you can drop materials onto it">
+            + Sample Sculpt
+          </button>
+        </div>
+        <div class="ws-row-gap">
+          <button type="button" class="ws-mini-btn ws-mini-accent ws-flex-1" id="wsMatApplyStrokes">
+            Apply to Strokes (${this.strokeCount})
+          </button>
+          <button type="button" class="ws-mini-btn ws-flex-1" id="wsMatApplySubject">
+            Apply to Centerpiece
+          </button>
+          <button type="button" class="ws-mini-btn" id="wsMatClearStrokes" ${
+            this.strokeCount === 0 ? 'disabled' : ''
+          }>Clear</button>
+        </div>
+      </section>
+
+      <section class="ws-card">
+        <div class="ws-chip-row">
+          ${categories
+            .map(
+              (c) =>
+                `<button type="button" class="ws-chip ${
+                  this.pbrCategoryFilter === c.id ? 'is-active' : ''
+                }" data-pbr-cat="${c.id}">${c.label}</button>`
+            )
+            .join('')}
+        </div>
+        <div class="ws-pbr-grid">${cardsHtml}</div>
+      </section>
+    `;
+
+    container.querySelector('#wsMatToggleBrush')?.addEventListener('click', () => {
+      this.brushEnabled = !this.brushEnabled;
+      this.callbacks.onToggleBrush(this.brushEnabled);
+      this.renderBody();
+    });
+
+    container.querySelector('#wsMatAddSample')?.addEventListener('click', () => {
+      this.callbacks.onAddSampleSculpt(this.activePbrPresetId);
+    });
+
+    container.querySelector('#wsMatApplyStrokes')?.addEventListener('click', () => {
+      this.callbacks.onApplyPbrToAllStrokes(this.activePbrPresetId);
+    });
+
+    container.querySelector('#wsMatApplySubject')?.addEventListener('click', () => {
+      this.callbacks.onApplyPbrToSubject(this.activePbrPresetId);
+    });
+
+    container.querySelector('#wsMatClearStrokes')?.addEventListener('click', () => {
+      this.callbacks.onClearBrush();
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('[data-pbr-cat]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.pbrCategoryFilter = btn.dataset.pbrCat as ProceduralPbrCategory;
+        this.renderBody();
+      });
+    });
+
+    container.querySelectorAll<HTMLDivElement>('[data-pbr-id]').forEach((card) => {
+      const presetId = card.dataset.pbrId;
+      if (!presetId) return;
+
+      card.addEventListener('click', () => {
+        this.activePbrPresetId = presetId;
+        this.callbacks.onSelectBrushPbrPreset(presetId);
+        this.renderBody();
+      });
+
+      card.addEventListener('dragstart', (e) => {
+        this.activePbrPresetId = presetId;
+        this.callbacks.onSelectBrushPbrPreset(presetId);
+        this.callbacks.onStartPbrDrag(presetId);
+        if (e.dataTransfer) {
+          e.dataTransfer.setData('application/x-samscene-pbr', presetId);
+          e.dataTransfer.setData('text/plain', presetId);
+          e.dataTransfer.effectAllowed = 'copy';
+        }
+        card.classList.add('is-dragging');
+      });
+
+      card.addEventListener('dragend', () => {
+        card.classList.remove('is-dragging');
+        this.callbacks.onStartPbrDrag(null);
+      });
+    });
+  }
+
   private renderLightingPanel(container: HTMLElement): void {
     const s = this.lightingState;
+    const sky = this.skyConfig;
     const angleDeg = Math.round((s.keyAngle * 180) / Math.PI);
     const satPct = Math.round(s.ambientSaturation * 100);
     const previewHex = `hsl(${s.ambientHue}, ${satPct}%, 72%)`;
 
     container.innerHTML = `
+      <section class="ws-card">
+        <div class="ws-row-between">
+          <span class="ws-label">Sky Dome &amp; Galaxy Generator</span>
+          <button type="button" class="ws-mini-btn ws-mini-accent" id="wsSaveSkyTplBtn">Save Template</button>
+        </div>
+        <div class="ws-sky-grid">
+          ${SKY_PRESETS.map(
+            (p) => `
+            <button type="button" class="ws-env-card ${
+              p.id === sky.presetId ? 'is-active' : ''
+            }" data-sky-preset="${p.id}" title="${escapeHtml(p.description)}">
+              <div class="ws-env-card-head">
+                <span class="ws-swatch" style="background:${p.swatchHex}"></span>
+                ${escapeHtml(p.label)}
+              </div>
+              <span>${escapeHtml(p.subtitle)}</span>
+            </button>
+          `
+          ).join('')}
+        </div>
+        <div class="ws-row-between">
+          <span class="ws-label">Interactive Trigger</span>
+          <label class="ws-muted-note" style="display:flex;align-items:center;gap:4px;cursor:pointer;">
+            <input type="checkbox" id="wsSkyImmersive" ${sky.immersiveSkyOnly ? 'checked' : ''} />
+            Immersive 360° Sky
+          </label>
+        </div>
+        <div class="ws-chip-row">
+          ${SKY_TRIGGER_MODES.map(
+            (m) => `
+            <button type="button" class="ws-chip ${
+              m.id === sky.triggerMode ? 'is-active' : ''
+            }" data-sky-trigger="${m.id}" title="${escapeHtml(m.hint)}">${escapeHtml(
+              m.label
+            )}</button>
+          `
+          ).join('')}
+        </div>
+        <div class="ws-light-controls">
+          <label class="ws-light-control">
+            <div class="ws-light-head">
+              <span>Sky Time / Phase</span>
+              <span class="ws-light-value" id="wsValSkyProg">${Math.round(
+                sky.progression * 100
+              )}%</span>
+            </div>
+            <input type="range" class="ws-range" id="wsSkyProgRange" min="0" max="1" step="0.01" value="${
+              sky.progression
+            }" />
+          </label>
+          <label class="ws-light-control">
+            <div class="ws-light-head">
+              <span>Cloud Density</span>
+              <span class="ws-light-value" id="wsValSkyCloud">${Math.round(
+                sky.cloudDensity * 100
+              )}%</span>
+            </div>
+            <input type="range" class="ws-range" id="wsSkyCloudRange" min="0" max="1" step="0.02" value="${
+              sky.cloudDensity
+            }" />
+          </label>
+          <label class="ws-light-control">
+            <div class="ws-light-head">
+              <span>Galaxy &amp; Nebula Core</span>
+              <span class="ws-light-value" id="wsValSkyGalaxy">${Math.round(
+                sky.galaxyIntensity * 100
+              )}%</span>
+            </div>
+            <input type="range" class="ws-range" id="wsSkyGalaxyRange" min="0" max="1" step="0.02" value="${
+              sky.galaxyIntensity
+            }" />
+          </label>
+          <label class="ws-light-control">
+            <div class="ws-light-head">
+              <span>Polar Aurora</span>
+              <span class="ws-light-value" id="wsValSkyAurora">${Math.round(
+                sky.auroraIntensity * 100
+              )}%</span>
+            </div>
+            <input type="range" class="ws-range" id="wsSkyAuroraRange" min="0" max="1" step="0.02" value="${
+              sky.auroraIntensity
+            }" />
+          </label>
+        </div>
+        <button type="button" class="ws-btn ws-btn-ghost" id="wsExtractRefSkyBtn" ${
+          this.isExtractingVideoPack ? 'disabled' : ''
+        }>
+          ${
+            this.isExtractingVideoPack
+              ? 'Generating Scene Pack...'
+              : 'Generate Scene Pack from Reference Sky Video'
+          }
+        </button>
+      </section>
+
       <section class="ws-card">
         <div class="ws-row-between">
           <span class="ws-label">Dynamic Lighting</span>
@@ -1967,6 +2538,68 @@ export class MiniAgentSam {
         </div>
       </section>
     `;
+
+    container.querySelectorAll<HTMLButtonElement>('[data-sky-preset]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.callbacks.onSelectSkyPreset(btn.dataset.skyPreset as SkyPresetId);
+      });
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('[data-sky-trigger]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.callbacks.onSetSkyTriggerMode(btn.dataset.skyTrigger as SkyTriggerMode);
+      });
+    });
+
+    container.querySelector('#wsSaveSkyTplBtn')?.addEventListener('click', () => {
+      void this.callbacks.onSaveSkyTemplate();
+    });
+
+    const immersiveEl = container.querySelector('#wsSkyImmersive') as HTMLInputElement;
+    immersiveEl?.addEventListener('change', () => {
+      this.callbacks.onUpdateSkyConfig({ immersiveSkyOnly: immersiveEl.checked });
+    });
+
+    const skyProgIn = container.querySelector('#wsSkyProgRange') as HTMLInputElement;
+    const skyProgVal = container.querySelector('#wsValSkyProg') as HTMLSpanElement;
+    const skyCloudIn = container.querySelector('#wsSkyCloudRange') as HTMLInputElement;
+    const skyCloudVal = container.querySelector('#wsValSkyCloud') as HTMLSpanElement;
+    const skyGalIn = container.querySelector('#wsSkyGalaxyRange') as HTMLInputElement;
+    const skyGalVal = container.querySelector('#wsValSkyGalaxy') as HTMLSpanElement;
+    const skyAurIn = container.querySelector('#wsSkyAuroraRange') as HTMLInputElement;
+    const skyAurVal = container.querySelector('#wsValSkyAurora') as HTMLSpanElement;
+
+    skyProgIn?.addEventListener('input', () => {
+      const val = Number(skyProgIn.value);
+      skyProgVal.textContent = `${Math.round(val * 100)}%`;
+      this.callbacks.onUpdateSkyConfig({ progression: val });
+    });
+    skyCloudIn?.addEventListener('input', () => {
+      const val = Number(skyCloudIn.value);
+      skyCloudVal.textContent = `${Math.round(val * 100)}%`;
+      this.callbacks.onUpdateSkyConfig({ cloudDensity: val });
+    });
+    skyGalIn?.addEventListener('input', () => {
+      const val = Number(skyGalIn.value);
+      skyGalVal.textContent = `${Math.round(val * 100)}%`;
+      this.callbacks.onUpdateSkyConfig({ galaxyIntensity: val });
+    });
+    skyAurIn?.addEventListener('input', () => {
+      const val = Number(skyAurIn.value);
+      skyAurVal.textContent = `${Math.round(val * 100)}%`;
+      this.callbacks.onUpdateSkyConfig({ auroraIntensity: val });
+    });
+
+    container.querySelector('#wsExtractRefSkyBtn')?.addEventListener('click', () => {
+      this.activeTab = 'assets';
+      this.render();
+      void this.callbacks.onExtractVideoScenePack({
+        useReferenceVideo: true,
+        prompt: 'Turn this diurnal and starry sky recording into an interactive scene pack',
+        generateCoverArt: true,
+        generateAnimationVideo: false,
+      });
+    });
 
     const keyIntInput = container.querySelector('#wsLightIntensity') as HTMLInputElement;
     const keyIntVal = container.querySelector('#wsValKeyIntensity') as HTMLSpanElement;
@@ -2267,6 +2900,7 @@ export class MiniAgentSam {
       if (query && !a.name.toLowerCase().includes(query)) return false;
       return true;
     });
+    const videoAssets = this.mediaAssets.filter((a) => a.category === 'video');
 
     const filters: Array<{ id: AssetFilter; label: string }> = [
       { id: 'all', label: 'All' },
@@ -2295,7 +2929,9 @@ export class MiniAgentSam {
                 parts.push(formatBytes(a.sizeBytes));
                 meta = parts.join(' • ');
               } else if (a.category === 'video') {
-                meta = `VIDEO • ${a.width}×${a.height} • ${a.durationSec || 0}s`;
+                meta = `VIDEO • ${a.width}×${a.height} • ${a.durationSec || 0}s • ${
+                  a.extractedKeyframes?.length || 0
+                } keyframes`;
               } else if (a.category === 'audio') {
                 meta = `AUDIO • ${a.durationSec || 0}s • ${formatBytes(a.sizeBytes)}`;
               } else if (a.category === 'transcript') {
@@ -2303,6 +2939,24 @@ export class MiniAgentSam {
               } else if (a.category === 'image') {
                 meta = `IMAGE • ${a.width}×${a.height}`;
               }
+
+              const keyframeStrip =
+                a.category === 'video' && a.extractedKeyframes && a.extractedKeyframes.length > 0
+                  ? `
+                  <div class="ws-kf-strip">
+                    ${a.extractedKeyframes
+                      .map(
+                        (kf) => `
+                        <div class="ws-kf-frame" title="${kf.timestampSec}s (${kf.dominantHex})">
+                          <img src="${kf.dataUrl}" alt="Keyframe ${kf.timestampSec}s" referrerpolicy="no-referrer" />
+                          <span class="ws-kf-dot" style="background:${kf.dominantHex}"></span>
+                        </div>
+                      `
+                      )
+                      .join('')}
+                  </div>
+                `
+                  : '';
 
               const actionBtns =
                 a.category === 'audio'
@@ -2316,29 +2970,79 @@ export class MiniAgentSam {
                        <button type="button" class="ws-mini-btn ws-mini-accent" data-asset-tr-beats="${escapeHtml(
                          a.id
                        )}">-> Beats</button>`
-                    : `<button type="button" class="ws-mini-btn ws-mini-accent" data-asset-place="${escapeHtml(
-                        a.id
-                      )}">Place 3D</button>`;
+                    : a.category === 'video'
+                      ? `<button type="button" class="ws-mini-btn ws-mini-accent" data-video-pack-asset="${escapeHtml(
+                          a.id
+                        )}">Scene Pack</button>
+                         <button type="button" class="ws-mini-btn" data-asset-place="${escapeHtml(
+                           a.id
+                         )}">3D Screen</button>`
+                      : `<button type="button" class="ws-mini-btn ws-mini-accent" data-asset-place="${escapeHtml(
+                          a.id
+                        )}">Place 3D</button>`;
 
               return `
-                <div class="ws-asset-row">
-                  <div class="ws-asset-info">
-                    <span class="ws-asset-name" title="${escapeHtml(a.name)}">${escapeHtml(
-                      a.name
-                    )}</span>
-                    <span class="ws-asset-meta">${escapeHtml(meta)}</span>
+                <div class="ws-asset-row-wrap">
+                  <div class="ws-asset-row">
+                    <div class="ws-asset-info">
+                      <span class="ws-asset-name" title="${escapeHtml(a.name)}">${escapeHtml(
+                        a.name
+                      )}</span>
+                      <span class="ws-asset-meta">${escapeHtml(meta)}</span>
+                    </div>
+                    <div class="ws-row-gap">
+                      ${actionBtns}
+                      <button type="button" class="ws-mini-btn" data-asset-del="${escapeHtml(
+                        a.id
+                      )}" title="Remove">×</button>
+                    </div>
                   </div>
-                  <div class="ws-row-gap">
-                    ${actionBtns}
-                    <button type="button" class="ws-mini-btn" data-asset-del="${escapeHtml(
-                      a.id
-                    )}" title="Remove">×</button>
-                  </div>
+                  ${keyframeStrip}
                 </div>
               `;
             })
             .join('')
         : `<span class="ws-muted-note">No imported assets yet. Drop GLB/glTF, BIM (.ifc), OBJ, STL, FBX, DAE, Video, Audio, Transcripts, or Images above.</span>`;
+
+    const tplQuery = this.templateSearch.trim().toLowerCase();
+    const filteredTemplates = this.studioTemplates.filter((t) => {
+      if (this.templateKindFilter !== 'all' && t.resource_kind !== this.templateKindFilter) {
+        return false;
+      }
+      if (tplQuery) {
+        const hay = `${t.title} ${t.category} ${t.pack_title || ''} ${t.tags.join(' ')}`.toLowerCase();
+        if (!hay.includes(tplQuery)) return false;
+      }
+      return true;
+    });
+
+    const templatesHtml =
+      filteredTemplates.length > 0
+        ? filteredTemplates
+            .map(
+              (t) => `
+              <div class="ws-template-row">
+                <div class="ws-asset-info">
+                  <span class="ws-asset-name" title="${escapeHtml(t.title)}">${escapeHtml(
+                    t.title
+                  )}</span>
+                  <span class="ws-asset-meta">${escapeHtml(t.resource_kind)} • ${escapeHtml(
+                    t.category
+                  )}${t.sku ? ` • ${escapeHtml(t.sku)}` : ''}</span>
+                </div>
+                <div class="ws-row-gap">
+                  <button type="button" class="ws-mini-btn ws-mini-accent" data-tpl-apply="${escapeHtml(
+                    t.id
+                  )}">Apply</button>
+                  <button type="button" class="ws-mini-btn" data-tpl-del="${escapeHtml(
+                    t.id
+                  )}" title="Delete template">×</button>
+                </div>
+              </div>
+            `
+            )
+            .join('')
+        : `<span class="ws-muted-note">No matching records in studio_templates.</span>`;
 
     const slotsHtml =
       this.savedSlots.length > 0
@@ -2378,10 +3082,59 @@ export class MiniAgentSam {
       `
       : `
         <div class="ws-dropzone-copy">
-          <strong>Drag &amp; drop GLB / glTF or BIM (.ifc) files here</strong>
-          <span>Click to browse • Parsed into 3D scene &amp; registered in Asset Registry</span>
+          <strong>Drag &amp; drop Video, GLB/glTF, BIM (.ifc), Images, or Audio</strong>
+          <span>Click to browse • Videos auto-sample keyframes for Gemini Scene Pack extraction</span>
         </div>
       `;
+
+    const packHtml = this.latestScenePack
+      ? `
+      <div class="ws-scene-pack-box">
+        <div class="ws-row-between">
+          <strong>${escapeHtml(this.latestScenePack.packTitle)}</strong>
+          <button type="button" class="ws-mini-btn ws-mini-accent" id="wsReapplyPackBtn">Re-Apply Pack</button>
+        </div>
+        <span class="ws-muted-note">${escapeHtml(this.latestScenePack.summary)}</span>
+        ${
+          this.latestScenePack.coverArtDataUrl
+            ? `<img class="ws-pack-cover" src="${this.latestScenePack.coverArtDataUrl}" alt="Scene Pack Cover Art" referrerpolicy="no-referrer" />`
+            : ''
+        }
+        ${
+          this.latestScenePack.extractedTextures && this.latestScenePack.extractedTextures.length > 0
+            ? `
+          <div class="ws-chip-row">
+            ${this.latestScenePack.extractedTextures
+              .map(
+                (t) =>
+                  `<span class="ws-tag"><span class="ws-swatch" style="background:${t.primaryHex};display:inline-block;vertical-align:middle;margin-right:4px;"></span>${escapeHtml(
+                    t.name
+                  )}</span>`
+              )
+              .join('')}
+          </div>
+        `
+            : ''
+        }
+        ${
+          this.latestScenePack.cameraPath && this.latestScenePack.cameraPath.length > 0
+            ? `
+          <div class="ws-chip-row">
+            ${this.latestScenePack.cameraPath
+              .map(
+                (kf, idx) =>
+                  `<button type="button" class="ws-mini-btn" data-preview-kf="${idx}" title="${escapeHtml(
+                    kf.motionNote
+                  )}">Cam ${kf.timestampSec.toFixed(1)}s (${escapeHtml(kf.shotId)})</button>`
+              )
+              .join('')}
+          </div>
+        `
+            : ''
+        }
+      </div>
+    `
+      : '';
 
     container.innerHTML = `
       <section class="ws-card">
@@ -2392,7 +3145,7 @@ export class MiniAgentSam {
             + Import
           </label>
         </div>
-        <div class="ws-dropzone ${this.ingestProgress?.active ? 'is-loading' : ''}" id="wsAssetsDropzone" role="button" tabindex="0" aria-label="Drop GLB, glTF, BIM IFC, or studio media files">
+        <div class="ws-dropzone ${this.ingestProgress?.active ? 'is-loading' : ''}" id="wsAssetsDropzone" role="button" tabindex="0" aria-label="Drop Video, GLB, glTF, BIM IFC, or studio media files">
           ${dropzoneContent}
         </div>
         <input type="search" class="ws-input" id="wsAssetSearch" value="${escapeHtml(
@@ -2409,6 +3162,81 @@ export class MiniAgentSam {
             .join('')}
         </div>
         <div class="ws-asset-list">${assetRowsHtml}</div>
+      </section>
+
+      <section class="ws-card">
+        <div class="ws-row-between">
+          <span class="ws-label">Video Keyframes → Scene Pack</span>
+          <span class="ws-muted-note">Gemini Keyframe Parser</span>
+        </div>
+        <select class="ws-select" id="wsVideoPackSource">
+          ${
+            videoAssets.length > 0
+              ? videoAssets
+                  .map(
+                    (v) =>
+                      `<option value="${escapeHtml(v.id)}" ${
+                        v.id === this.selectedVideoAssetId ? 'selected' : ''
+                      }>Video: ${escapeHtml(v.name)} (${v.extractedKeyframes?.length || 0} kf)</option>`
+                  )
+                  .join('')
+              : '<option value="">Upload a .mp4/.mov/.webm video above or use sample below</option>'
+          }
+        </select>
+        <input type="text" class="ws-input" id="wsVideoPackPrompt" value="${escapeHtml(
+          this.videoPackPrompt
+        )}" placeholder="Direction (e.g., Extract galaxy sky, marble texture, camera arc, character pose)..." />
+        <div class="ws-row-between">
+          <label class="ws-muted-note" style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+            <input type="checkbox" id="wsPackCoverArt" ${this.videoGenCoverArt ? 'checked' : ''} />
+            Cover Art (Image)
+          </label>
+          <label class="ws-muted-note" style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+            <input type="checkbox" id="wsPackAnimClip" ${this.videoGenAnimation ? 'checked' : ''} />
+            Animated Clip
+          </label>
+        </div>
+        <div class="ws-row-gap">
+          <button type="button" class="ws-btn ws-btn-primary ws-flex-1" id="wsRunVideoPackBtn" ${
+            this.isExtractingVideoPack || videoAssets.length === 0 ? 'disabled' : ''
+          }>
+            ${this.isExtractingVideoPack ? 'Parsing Keyframes...' : 'Extract Selected Video Pack'}
+          </button>
+          <button type="button" class="ws-btn ws-btn-ghost" id="wsRunRefVideoPackBtn" ${
+            this.isExtractingVideoPack ? 'disabled' : ''
+          }>
+            Sample Sky Video
+          </button>
+        </div>
+        ${packHtml}
+      </section>
+
+      <section class="ws-card">
+        <div class="ws-row-between">
+          <span class="ws-label">studio_templates Registry (${filteredTemplates.length})</span>
+          <button type="button" class="ws-mini-btn" id="wsExportSqlBtn">Export .SQL</button>
+        </div>
+        <div class="ws-row-gap">
+          <input type="search" class="ws-input ws-flex-1" id="wsTplSearch" value="${escapeHtml(
+            this.templateSearch
+          )}" placeholder="Filter templates by tag or sky..." />
+          <select class="ws-select" id="wsTplKindFilter" style="width:120px;">
+            <option value="all" ${this.templateKindFilter === 'all' ? 'selected' : ''}>All Kinds</option>
+            <option value="scene_pack" ${
+              this.templateKindFilter === 'scene_pack' ? 'selected' : ''
+            }>Scene Pack</option>
+            <option value="sky_shader" ${
+              this.templateKindFilter === 'sky_shader' ? 'selected' : ''
+            }>Sky Shader</option>
+            <option value="hover_scroll_scene" ${
+              this.templateKindFilter === 'hover_scroll_scene' ? 'selected' : ''
+            }>Hover/Scroll</option>
+            <option value="character_actor" ${
+              this.templateKindFilter === 'character_actor' ? 'selected' : ''
+            }>Character</option>
+          </select>
+        </div>
+        <div class="ws-asset-list">${templatesHtml}</div>
       </section>
 
       <section class="ws-card">
@@ -2483,6 +3311,20 @@ export class MiniAgentSam {
       });
     });
 
+    container.querySelectorAll<HTMLButtonElement>('[data-video-pack-asset]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const assetId = btn.dataset.videoPackAsset;
+        if (!assetId) return;
+        this.selectedVideoAssetId = assetId;
+        void this.callbacks.onExtractVideoScenePack({
+          assetId,
+          prompt: this.videoPackPrompt.trim(),
+          generateCoverArt: this.videoGenCoverArt,
+          generateAnimationVideo: this.videoGenAnimation,
+        });
+      });
+    });
+
     container.querySelectorAll<HTMLButtonElement>('[data-asset-play]').forEach((btn) => {
       btn.addEventListener('click', () => {
         if (btn.dataset.assetPlay) this.callbacks.onPlayMediaAudio(btn.dataset.assetPlay);
@@ -2504,6 +3346,89 @@ export class MiniAgentSam {
     container.querySelectorAll<HTMLButtonElement>('[data-asset-del]').forEach((btn) => {
       btn.addEventListener('click', () => {
         if (btn.dataset.assetDel) this.callbacks.onRemoveMediaAsset(btn.dataset.assetDel);
+      });
+    });
+
+    const videoSourceEl = container.querySelector('#wsVideoPackSource') as HTMLSelectElement;
+    const videoPromptEl = container.querySelector('#wsVideoPackPrompt') as HTMLInputElement;
+    const packCoverEl = container.querySelector('#wsPackCoverArt') as HTMLInputElement;
+    const packAnimEl = container.querySelector('#wsPackAnimClip') as HTMLInputElement;
+
+    videoSourceEl?.addEventListener('change', () => {
+      this.selectedVideoAssetId = videoSourceEl.value;
+    });
+    videoPromptEl?.addEventListener('input', () => {
+      this.videoPackPrompt = videoPromptEl.value;
+    });
+    packCoverEl?.addEventListener('change', () => {
+      this.videoGenCoverArt = packCoverEl.checked;
+    });
+    packAnimEl?.addEventListener('change', () => {
+      this.videoGenAnimation = packAnimEl.checked;
+    });
+
+    container.querySelector('#wsRunVideoPackBtn')?.addEventListener('click', () => {
+      if (!this.selectedVideoAssetId) return;
+      void this.callbacks.onExtractVideoScenePack({
+        assetId: this.selectedVideoAssetId,
+        prompt: this.videoPackPrompt.trim(),
+        generateCoverArt: this.videoGenCoverArt,
+        generateAnimationVideo: this.videoGenAnimation,
+      });
+    });
+
+    container.querySelector('#wsRunRefVideoPackBtn')?.addEventListener('click', () => {
+      void this.callbacks.onExtractVideoScenePack({
+        useReferenceVideo: true,
+        prompt:
+          this.videoPackPrompt.trim() ||
+          'Extract dynamic sky, lighting, camera trajectory, and procedural textures',
+        generateCoverArt: this.videoGenCoverArt,
+        generateAnimationVideo: this.videoGenAnimation,
+      });
+    });
+
+    container.querySelector('#wsReapplyPackBtn')?.addEventListener('click', () => {
+      if (this.latestScenePack) this.callbacks.onApplyScenePack(this.latestScenePack);
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('[data-preview-kf]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const idx = Number(btn.dataset.previewKf);
+        const kf = this.latestScenePack?.cameraPath?.[idx];
+        if (kf) this.callbacks.onPreviewCameraKeyframe(kf);
+      });
+    });
+
+    const tplSearchEl = container.querySelector('#wsTplSearch') as HTMLInputElement;
+    tplSearchEl?.addEventListener('input', () => {
+      this.templateSearch = tplSearchEl.value;
+      this.renderBody();
+      const restored = this.sideBodyEl.querySelector('#wsTplSearch') as HTMLInputElement | null;
+      restored?.focus();
+      restored?.setSelectionRange(this.templateSearch.length, this.templateSearch.length);
+    });
+
+    const tplKindEl = container.querySelector('#wsTplKindFilter') as HTMLSelectElement;
+    tplKindEl?.addEventListener('change', () => {
+      this.templateKindFilter = tplKindEl.value;
+      this.renderBody();
+    });
+
+    container.querySelector('#wsExportSqlBtn')?.addEventListener('click', () => {
+      void this.callbacks.onExportTemplatesSql();
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('[data-tpl-apply]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const found = this.studioTemplates.find((t) => t.id === btn.dataset.tplApply);
+        if (found) this.callbacks.onApplyTemplateRecord(found);
+      });
+    });
+
+    container.querySelectorAll<HTMLButtonElement>('[data-tpl-del]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.tplDel) void this.callbacks.onDeleteTemplateRecord(btn.dataset.tplDel);
       });
     });
 

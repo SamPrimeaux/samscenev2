@@ -4,16 +4,19 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import { StudioTemplatesRepository } from './server/studioTemplatesDb.ts';
+import { PrimeTechEcosystemRepository } from './server/primetechEcosystemDb.ts';
+import { SKY_PRESET_MAP } from './src/constants.ts';
 import type {
   AtmosphereMoodId,
   CameraShotId,
+  CharacterPoseKeyframe,
   CharacterRigSpec,
   CharacterStylePresetId,
   EnvironmentLevelId,
   ExtractedCameraKeyframe,
   ExtractedSurfaceTextureSpec,
   ExtractedVideoKeyframe,
-  MaterialFinishId,
+  FinishId,
   MovieBeat,
   SceneryPropType,
   SkyPresetId,
@@ -33,6 +36,10 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 
 const templatesRepo = new StudioTemplatesRepository(
   path.resolve(__dirname, '.data', 'samscene_templates.sqlite')
+);
+
+const ecosystemRepo = new PrimeTechEcosystemRepository(
+  path.resolve(__dirname, '.data', 'primetech_ecosystem.sqlite')
 );
 
 const VALID_VOICES = new Set([
@@ -258,6 +265,31 @@ async function createServer() {
       ttsModel: 'gemini-3.8-flash-tts',
       hasApiKey: Boolean(process.env.GEMINI_API_KEY),
     });
+  });
+
+  // --- PrimeTech / AgentSam Ecosystem & Architectural Intelligence MCP Endpoints ---
+  app.get('/api/primetech/ecosystem', (_req: Request, res: Response) => {
+    try {
+      res.json(ecosystemRepo.getSnapshot());
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to load PrimeTech ecosystem snapshot.';
+      res.status(500).json({ error: message });
+    }
+  });
+
+  app.get('/api/primetech/arch-lookup', (req: Request, res: Response) => {
+    try {
+      const nominal = typeof req.query.nominal === 'string' ? req.query.nominal : undefined;
+      res.json({
+        nominal: nominal || 'all',
+        specs: ecosystemRepo.lookupLumber(nominal),
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to query arch.material.lookup.';
+      res.status(500).json({ error: message });
+    }
   });
 
   // --- studio_templates SQLite Registry Endpoints ---
@@ -714,14 +746,15 @@ async function createServer() {
       };
 
       const userPrompt = (body.prompt || '').trim();
-      const stylePreset: CharacterStylePresetId = body.stylePreset || 'pixar-toon';
+      const stylePreset: CharacterStylePresetId = body.stylePreset || 'pixar-cinematic';
       const refImages = Array.isArray(body.referenceImages)
         ? body.referenceImages.slice(0, 3)
         : [];
 
       if (!userPrompt && refImages.length === 0) {
         res.status(400).json({
-          error: 'Provide a character description or drop an image/video frame to turn into a 3D cartoon character.',
+          error:
+            'Provide a character description or drop an image/video frame to turn into a 3D cartoon character.',
         });
         return;
       }
@@ -753,18 +786,19 @@ async function createServer() {
           `Return a JSON specification with:`,
           `- name: character name`,
           `- archetype: concise 2-4 word title`,
-          `- tagline: 1-sentence character intro line for SamSpeak TTS`,
+          `- bio: 1-2 sentence vivid character backstory`,
+          `- introScript: 1-2 expressive spoken lines for SamSpeak TTS`,
           `- voiceName: one of "Puck", "Kore", "Zephyr", "Fenrir", "Aoede", "Leda", "Orus", "Charon"`,
           `- voiceStyle: speaking style prompt`,
-          `- primaryColorHex, secondaryColorHex, accentColorHex, skinColorHex, eyeColorHex (6-digit #RRGGBB hex codes)`,
-          `- headShape: "rounded" | "cubic" | "astronaut" | " feline" | "bot" (use "feline" without space)`,
-          `- headgear: "none" | "visor" | "halo" | "antennae" | "crown" | "hood"`,
-          `- outfitStyle: "astro-suit" | "cape-coat" | "tech-vest" | "royal-tunic"`,
-          `- propType: "none" | "star-wand" | "holo-tablet" | "lantern-staff" | "plasma-orb"`,
-          `- proportions: { headScale: 0.9-1.45, torsoHeight: 0.34-0.5, limbLength: 0.24-0.36, capeLength: 0.35-0.65 }`,
-          `- animationStyle: "bouncy-idle" | "heroic-hover" | "curious-tilt" | "cosmic-float"`,
-          `- poseKeyframes: array of 3 timestamped poses ({ timestampSec: 0..4, headTiltRad: -0.3..0.3, armRaiseRad: 0.1..1.2, bounceOffset: 0..0.08, propSpinSpeed: 0.5..2.5, expression: "joyful"|"curious"|"heroic"|"surprised" })`,
-          `- portraitPrompt: rich visual prompt to render a studio portrait of this exact character`,
+          `- headShape: "rounded" | "chibi" | "heroic" | "robotic"`,
+          `- headgear: "none" | "cat-ears" | "crown" | "antennae" | "wizard-hat" | "astronaut-helmet" | "horns" | "crest"`,
+          `- outfit: "jacket" | "cape" | "mech-armor" | "robe" | "explorer"`,
+          `- propItem: "none" | "cosmic-orb" | "star-wand" | "lantern" | "microphone" | "hoverboard"`,
+          `- animationStyle: "bouncy-cartoon" | "heroic-idle" | "floating-cosmic" | "dance-groove" | "talk-gesture"`,
+          `- scaleHeight: number between 0.8 and 1.35`,
+          `- palette: { skinHex, primaryHex, secondaryHex, accentHex, eyeHex, hairHex } (all #RRGGBB)`,
+          `- poseKeyframes: array of 3 timestamped poses ({ timestampSec: 0..4, poseName, actionDescription, headTiltDeg: -22..22, armRaise: 0..1.2, bounceAmplitude: 0..0.08, propSpinSpeed: 0.4..2.8, expression: "joyful"|"curious"|"heroic"|"serene" })`,
+          `- portraitPrompt: rich visual prompt to render a studio turnaround portrait of this exact character`,
         ]
           .filter(Boolean)
           .join('\n'),
@@ -780,66 +814,73 @@ async function createServer() {
           required: [
             'name',
             'archetype',
-            'tagline',
+            'bio',
+            'introScript',
             'voiceName',
             'voiceStyle',
-            'primaryColorHex',
-            'secondaryColorHex',
-            'accentColorHex',
-            'skinColorHex',
-            'eyeColorHex',
             'headShape',
             'headgear',
-            'outfitStyle',
-            'propType',
-            'proportions',
+            'outfit',
+            'propItem',
             'animationStyle',
+            'scaleHeight',
+            'palette',
             'poseKeyframes',
             'portraitPrompt',
           ],
           properties: {
             name: { type: Type.STRING },
             archetype: { type: Type.STRING },
-            tagline: { type: Type.STRING },
+            bio: { type: Type.STRING },
+            introScript: { type: Type.STRING },
             voiceName: { type: Type.STRING },
             voiceStyle: { type: Type.STRING },
-            primaryColorHex: { type: Type.STRING },
-            secondaryColorHex: { type: Type.STRING },
-            accentColorHex: { type: Type.STRING },
-            skinColorHex: { type: Type.STRING },
-            eyeColorHex: { type: Type.STRING },
             headShape: { type: Type.STRING },
             headgear: { type: Type.STRING },
-            outfitStyle: { type: Type.STRING },
-            propType: { type: Type.STRING },
-            proportions: {
+            outfit: { type: Type.STRING },
+            propItem: { type: Type.STRING },
+            animationStyle: { type: Type.STRING },
+            scaleHeight: { type: Type.NUMBER },
+            palette: {
               type: Type.OBJECT,
-              required: ['headScale', 'torsoHeight', 'limbLength', 'capeLength'],
+              required: [
+                'skinHex',
+                'primaryHex',
+                'secondaryHex',
+                'accentHex',
+                'eyeHex',
+                'hairHex',
+              ],
               properties: {
-                headScale: { type: Type.NUMBER },
-                torsoHeight: { type: Type.NUMBER },
-                limbLength: { type: Type.NUMBER },
-                capeLength: { type: Type.NUMBER },
+                skinHex: { type: Type.STRING },
+                primaryHex: { type: Type.STRING },
+                secondaryHex: { type: Type.STRING },
+                accentHex: { type: Type.STRING },
+                eyeHex: { type: Type.STRING },
+                hairHex: { type: Type.STRING },
               },
             },
-            animationStyle: { type: Type.STRING },
             poseKeyframes: {
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
                 required: [
                   'timestampSec',
-                  'headTiltRad',
-                  'armRaiseRad',
-                  'bounceOffset',
+                  'poseName',
+                  'actionDescription',
+                  'headTiltDeg',
+                  'armRaise',
+                  'bounceAmplitude',
                   'propSpinSpeed',
                   'expression',
                 ],
                 properties: {
                   timestampSec: { type: Type.NUMBER },
-                  headTiltRad: { type: Type.NUMBER },
-                  armRaiseRad: { type: Type.NUMBER },
-                  bounceOffset: { type: Type.NUMBER },
+                  poseName: { type: Type.STRING },
+                  actionDescription: { type: Type.STRING },
+                  headTiltDeg: { type: Type.NUMBER },
+                  armRaise: { type: Type.NUMBER },
+                  bounceAmplitude: { type: Type.NUMBER },
                   propSpinSpeed: { type: Type.NUMBER },
                   expression: { type: Type.STRING },
                 },
@@ -855,7 +896,7 @@ async function createServer() {
       let portraitDataUrl: string | undefined;
       if (body.generatePortrait !== false) {
         portraitDataUrl = await generatePortraitOrCoverImage({
-          prompt: `${String(parsed.portraitPrompt || parsed.name || '3D cartoon character')}, feature animation 3D character turnaround portrait, subsurface scattering, expressive studio rim lighting, clean dark slate background`,
+          prompt: `${String(parsed.portraitPrompt || parsed.name || '3D cartoon character')}, ${stylePreset} character turnaround portrait, subsurface scattering, expressive studio rim lighting, clean dark slate background`,
           aspectRatio: '1:1',
           referenceImages: refImages,
         });
@@ -869,82 +910,104 @@ async function createServer() {
         });
       }
 
-      const validHeadShapes = new Set(['rounded', 'cubic', 'astronaut', 'feline', 'bot']);
-      const validHeadgear = new Set(['none', 'visor', 'halo', 'antennae', 'crown', 'hood']);
-      const validOutfits = new Set(['astro-suit', 'cape-coat', 'tech-vest', 'royal-tunic']);
+      const validHeadShapes = new Set(['rounded', 'chibi', 'heroic', 'robotic']);
+      const validHeadgear = new Set([
+        'none',
+        'cat-ears',
+        'crown',
+        'antennae',
+        'wizard-hat',
+        'astronaut-helmet',
+        'horns',
+        'crest',
+      ]);
+      const validOutfits = new Set(['jacket', 'cape', 'mech-armor', 'robe', 'explorer']);
       const validProps = new Set([
         'none',
+        'cosmic-orb',
         'star-wand',
-        'holo-tablet',
-        'lantern-staff',
-        'plasma-orb',
+        'lantern',
+        'microphone',
+        'hoverboard',
       ]);
       const validAnim = new Set([
-        'bouncy-idle',
-        'heroic-hover',
-        'curious-tilt',
-        'cosmic-float',
+        'bouncy-cartoon',
+        'heroic-idle',
+        'floating-cosmic',
+        'dance-groove',
+        'talk-gesture',
       ]);
 
-      const rawProps = (parsed.proportions || {}) as Record<string, number>;
+      const rawPal = (parsed.palette || {}) as Record<string, unknown>;
       const rawKeyframes = Array.isArray(parsed.poseKeyframes) ? parsed.poseKeyframes : [];
+
+      const poseKeyframes: CharacterPoseKeyframe[] = rawKeyframes
+        .slice(0, 6)
+        .map((kf: Record<string, unknown>, idx: number) => ({
+          timestampSec: Number(kf.timestampSec ?? idx * 1.4),
+          poseName: String(kf.poseName || `Pose ${idx + 1}`),
+          actionDescription: String(
+            kf.actionDescription || 'Expressive spatial studio stance'
+          ),
+          headTiltDeg: Math.max(-28, Math.min(28, Number(kf.headTiltDeg) || 6)),
+          armRaise: Math.max(0, Math.min(1.4, Number(kf.armRaise) || 0.35)),
+          bounceAmplitude: Math.max(0, Math.min(0.12, Number(kf.bounceAmplitude) || 0.03)),
+          propSpinSpeed: Math.max(0.2, Math.min(3.5, Number(kf.propSpinSpeed) || 1.2)),
+          expression:
+            kf.expression === 'curious' ||
+            kf.expression === 'heroic' ||
+            kf.expression === 'serene'
+              ? kf.expression
+              : 'joyful',
+        }));
 
       const character: CharacterRigSpec = {
         id: `char-${Date.now().toString(36)}`,
         name: String(parsed.name || 'Nova Sprocket'),
         archetype: String(parsed.archetype || 'Galactic Cartoon Navigator'),
         stylePreset,
-        tagline: String(
-          parsed.tagline || 'Ready to pilot our next spatial storyboard across the nebula!'
+        bio: String(
+          parsed.bio ||
+            'An imaginative animated hero built in SamScene Character Studio.'
         ),
         voiceName: (VALID_VOICES.has(String(parsed.voiceName || ''))
           ? String(parsed.voiceName)
           : 'Puck') as VoiceName,
         voiceStyle: String(parsed.voiceStyle || 'Bright, expressive animated hero'),
-        primaryColorHex: cleanHex(parsed.primaryColorHex, '#3b82f6'),
-        secondaryColorHex: cleanHex(parsed.secondaryColorHex, '#1e293b'),
-        accentColorHex: cleanHex(parsed.accentColorHex, '#f59e0b'),
-        skinColorHex: cleanHex(parsed.skinColorHex, '#fcd34d'),
-        eyeColorHex: cleanHex(parsed.eyeColorHex, '#38bdf8'),
+        introScript: String(
+          parsed.introScript ||
+            'Ready to pilot our next spatial storyboard across the nebula!'
+        ),
         headShape: (validHeadShapes.has(String(parsed.headShape).trim())
           ? String(parsed.headShape).trim()
           : 'rounded') as CharacterRigSpec['headShape'],
         headgear: (validHeadgear.has(String(parsed.headgear))
           ? String(parsed.headgear)
-          : 'visor') as CharacterRigSpec['headgear'],
-        outfitStyle: (validOutfits.has(String(parsed.outfitStyle))
-          ? String(parsed.outfitStyle)
-          : 'astro-suit') as CharacterRigSpec['outfitStyle'],
-        propType: (validProps.has(String(parsed.propType))
-          ? String(parsed.propType)
-          : 'star-wand') as CharacterRigSpec['propType'],
-        proportions: {
-          headScale: Math.max(0.85, Math.min(1.5, Number(rawProps.headScale) || 1.2)),
-          torsoHeight: Math.max(0.32, Math.min(0.55, Number(rawProps.torsoHeight) || 0.42)),
-          limbLength: Math.max(0.22, Math.min(0.4, Number(rawProps.limbLength) || 0.28)),
-          capeLength: Math.max(0.3, Math.min(0.7, Number(rawProps.capeLength) || 0.48)),
-        },
+          : 'astronaut-helmet') as CharacterRigSpec['headgear'],
+        outfit: (validOutfits.has(String(parsed.outfit))
+          ? String(parsed.outfit)
+          : 'explorer') as CharacterRigSpec['outfit'],
+        propItem: (validProps.has(String(parsed.propItem))
+          ? String(parsed.propItem)
+          : 'star-wand') as CharacterRigSpec['propItem'],
         animationStyle: (validAnim.has(String(parsed.animationStyle))
           ? String(parsed.animationStyle)
-          : 'bouncy-idle') as CharacterRigSpec['animationStyle'],
-        poseKeyframes: rawKeyframes.slice(0, 6).map((kf: Record<string, unknown>, idx: number) => ({
-          timestampSec: Number(kf.timestampSec ?? idx * 1.5),
-          headTiltRad: Math.max(-0.45, Math.min(0.45, Number(kf.headTiltRad) || 0.1)),
-          armRaiseRad: Math.max(0, Math.min(1.4, Number(kf.armRaiseRad) || 0.35)),
-          bounceOffset: Math.max(0, Math.min(0.12, Number(kf.bounceOffset) || 0.03)),
-          propSpinSpeed: Math.max(0.2, Math.min(3.5, Number(kf.propSpinSpeed) || 1.2)),
-          expression:
-            kf.expression === 'curious' ||
-            kf.expression === 'heroic' ||
-            kf.expression === 'surprised'
-              ? kf.expression
-              : 'joyful',
-        })),
+          : 'bouncy-cartoon') as CharacterRigSpec['animationStyle'],
+        scaleHeight: Math.max(0.75, Math.min(1.4, Number(parsed.scaleHeight) || 1.0)),
+        palette: {
+          skinHex: cleanHex(rawPal.skinHex, '#f6c7a8'),
+          primaryHex: cleanHex(rawPal.primaryHex, '#3b82f6'),
+          secondaryHex: cleanHex(rawPal.secondaryHex, '#1e293b'),
+          accentHex: cleanHex(rawPal.accentHex, '#f59e0b'),
+          eyeHex: cleanHex(rawPal.eyeHex, '#38bdf8'),
+          hairHex: cleanHex(rawPal.hairHex, '#4f46e5'),
+        },
+        poseKeyframes,
         portraitDataUrl: portraitDataUrl || refImages[0]?.data,
         animatedVideoDataUrl,
       };
 
-      const templateRecord = templatesRepo.createTemplate({
+      const template = templatesRepo.createTemplate({
         sku: `SAM-CHR-${character.id.toUpperCase()}`,
         app_id: 'samscene-studio',
         resource_kind: 'character_actor',
@@ -952,15 +1015,15 @@ async function createServer() {
         pack_title: `${character.name} Character Rig`,
         category: 'character',
         title: `${character.name} — ${character.archetype}`,
-        description: character.tagline,
+        description: character.introScript,
         use_case: '3D articulated cartoon actor with SamSpeak lip-sync and pose keyframes',
-        tags: ['character', stylePreset, character.headShape, character.propType],
+        tags: ['character', stylePreset, character.headShape, character.propItem],
         specs: {
           stylePreset: character.stylePreset,
           voiceName: character.voiceName,
           headShape: character.headShape,
-          outfitStyle: character.outfitStyle,
-          poseKeyframeCount: character.poseKeyframes?.length || 0,
+          outfit: character.outfit,
+          poseKeyframeCount: poseKeyframes.length,
         },
         payload: {
           character,
@@ -974,7 +1037,7 @@ async function createServer() {
         character,
         portraitDataUrl: character.portraitDataUrl,
         animatedVideoDataUrl,
-        templateRecord,
+        template,
       });
     } catch (error) {
       const message =
@@ -1033,18 +1096,19 @@ async function createServer() {
           userPrompt ? `Additional user creative direction: "${userPrompt}"` : '',
           `Extract and synthesize:`,
           `1. packTitle & summary describing the sky atmosphere, motion arc, and surface palette observed across the keyframes.`,
-          `2. environmentId ("atelier"|"observatory"|"Botanical"|"cyberloft"), moodId ("studio"|"sunset"|"twilight"|"noir"|"dawn"), subjectId ("astrolabe"|"orion"|"botanica"|"chronos"|"prism"), finishId ("brushedBrass"|"obsidianChrome"|"ceramicAlabaster"|" emeraldAnodized"|"roseTitanium").`,
+          `2. environmentId ("studio-stage"|"architectural-atrium"|"twilight-forest"|"coastal-observatory"|"orbital-lab"), moodId ("studio"|"sunset"|"twilight"|"noir"|"dawn"), subjectId ("astrolabe"|"pavilion"|"vox"|"terrarium"), finishId ("gold"|"titanium"|"obsidian"|"copper"|"iridescent").`,
           `3. skyConfig: procedural sky dome parameters matching the video sky/background:`,
           `   - presetId: one of "diurnal-cloudscape", "andromeda-nebula", "aurora-borealis", "exoplanet-rings", "supernova-remnant", "orbital-eclipse", "pastel-anime-sky", "studio-void"`,
-          `   - triggerMode: "scroll-reactive" or "hover-reactive" or "orbit-time"`,
-          `   - zenithColorHex, horizonColorHex, nadirColorHex, cloudColorHex, nebulaPrimaryHex, nebulaSecondaryHex (#RRGGBB hex colors sampled from the keyframes)`,
-          `   - cloudDensity (0..1), cirrusWispiness (0..1), galaxyIntensity (0..1), starFieldDensity (0..1), auroraIntensity (0..1)`,
-          `   - celestialBody: "sun-disc"|"crescent-moon"|"ringed-gas-giant"|"binary-suns"|"solar-eclipse"|"spiral-galaxy-core"`,
-          `   - celestialElevation (0.15..0.85), celestialAzimuth (0..1), celestialScale (0.7..2.1), windSpeed (0.1..1.5), scrollProgress (0..1), skyOnlyMode (false)`,
-          `4. extractedTextures: array of 3 surface texture specs extracted from the keyframes for targets "sky-cloud", "stage-floor", and "hero-finish", each with id, name, targetSurface, primaryColorHex, secondaryColorHex, accentColorHex, roughness (0.08..0.85), metalness (0.05..0.95), patternType ("cirrus-wisps"|"nebula-marble"|"architectural-grid"|"anodized-brushed"), sourceTimestampSec.`,
-          `5. cameraPath: array of ${Math.max(3, keyframes.length)} timestamped camera path keyframes matching the video progression, each with index, timestampSec, shotId ("establishing"|"hero"|"closeup"|"lowAngle"|"overhead"|"leftProp"|"rightProp"), transitionType ("glide"|"dolly"|"orbit"|"crane"), position ([x,y,z] near stage [0, 1.3..2.1, -1.2..1.6]), target ([x, 0.9..1.25, -2.1]), fovDeg (38..58), skyProgression (0..1), caption.`,
-          `6. character: a 3D cartoon character actor inspired by the video's energy and color palette, including 3-4 poseKeyframes synchronized to the video timestamps.`,
-          `7. sceneryProps: 3-4 stage props ({ kind: "pine"|"boulders"|"lantern"|"arch", position: [x,0,z], rotationY: number, scale: 0.85..1.25 }).`,
+          `   - title: descriptive sky dome name`,
+          `   - triggerMode: "scroll-reactive" or "hover-reactive" or "orbit-time" or "audio-reactive"`,
+          `   - zenithHex, horizonHex, nadirHex, cloudPrimaryHex, cloudAccentHex, nebulaPrimaryHex, nebulaSecondaryHex, sunHex (#RRGGBB hex colors sampled from the keyframes)`,
+          `   - cloudDensity (0..1), cloudScale (1.2..3.2), cirrusWisps (0..1), starIntensity (0..1), galaxyIntensity (0..1), auroraIntensity (0..1)`,
+          `   - sunElevation (0.08..0.85), progression (0..1), evolutionSpeed (0.1..1.2)`,
+          `   - celestialBody: "none"|"spiral-galaxy"|"ringed-planet"|"twin-suns"|"eclipse-corona"|"comet-shower"`,
+          `4. extractedTextures: array of 3 surface texture specs for surfaceRole "sky-cloud", "stage-floor", and "hero-finish", each with name, surfaceRole, primaryHex, secondaryHex, accentHex, roughness (0.08..0.9), metalness (0.05..0.95), patternType ("cirrus-wisp"|"nebula-swirl"|"travertine-vein"|"cel-halftone"|"metallic-brush").`,
+          `5. cameraPath: array of ${Math.max(3, keyframes.length)} timestamped camera path keyframes matching the video progression, each with timestampSec, shotId ("establishing"|"hero"|"closeup"|"lowAngle"|"overhead"|"leftProp"|"rightProp"), transitionType ("glide"|"dolly"|"orbit"|"crane"|"cut"), position ([x,y,z] near stage [0, 1.2..2.2, -0.8..1.6]), target ([x, 0.9..1.3, -1.25]), fovDeg (38..58), skyProgression (0..1), motionNote.`,
+          `6. character: a 3D cartoon character actor inspired by the video's energy and color palette, including name, archetype, bio, introScript, voiceName, voiceStyle, headShape ("rounded"|"chibi"|"heroic"|"robotic"), headgear, outfit, propItem, animationStyle, palette, and 3-4 poseKeyframes (timestampSec, poseName, actionDescription, headTiltDeg, armRaise, bounceAmplitude, propSpinSpeed, expression).`,
+          `7. sceneryProps: 3-4 stage props ({ type: "pine"|"boulders"|"lantern"|"arch", position: [x,0,z], rotationY: number }).`,
           `8. beats: 3-4 SamSpeak guided movie beats synchronized to the extracted cameraPath and skyProgression.`,
           `9. coverArtPrompt: vivid 16:9 poster art prompt representing this Scene Pack.`,
         ]
@@ -1086,43 +1150,49 @@ async function createServer() {
               type: Type.OBJECT,
               required: [
                 'presetId',
+                'title',
                 'triggerMode',
-                'zenithColorHex',
-                'horizonColorHex',
-                'nadirColorHex',
-                'cloudColorHex',
+                'zenithHex',
+                'horizonHex',
+                'nadirHex',
+                'cloudPrimaryHex',
+                'cloudAccentHex',
                 'nebulaPrimaryHex',
                 'nebulaSecondaryHex',
+                'sunHex',
                 'cloudDensity',
-                'cirrusWispiness',
+                'cloudScale',
+                'cirrusWisps',
+                'starIntensity',
                 'galaxyIntensity',
-                'starFieldDensity',
                 'auroraIntensity',
+                'sunElevation',
+                'progression',
+                'evolutionSpeed',
                 'celestialBody',
-                'celestialElevation',
-                'celestialAzimuth',
-                'celestialScale',
-                'windSpeed',
               ],
               properties: {
                 presetId: { type: Type.STRING },
+                title: { type: Type.STRING },
                 triggerMode: { type: Type.STRING },
-                zenithColorHex: { type: Type.STRING },
-                horizonColorHex: { type: Type.STRING },
-                nadirColorHex: { type: Type.STRING },
-                cloudColorHex: { type: Type.STRING },
+                zenithHex: { type: Type.STRING },
+                horizonHex: { type: Type.STRING },
+                nadirHex: { type: Type.STRING },
+                cloudPrimaryHex: { type: Type.STRING },
+                cloudAccentHex: { type: Type.STRING },
                 nebulaPrimaryHex: { type: Type.STRING },
                 nebulaSecondaryHex: { type: Type.STRING },
+                sunHex: { type: Type.STRING },
                 cloudDensity: { type: Type.NUMBER },
-                cirrusWispiness: { type: Type.NUMBER },
+                cloudScale: { type: Type.NUMBER },
+                cirrusWisps: { type: Type.NUMBER },
+                starIntensity: { type: Type.NUMBER },
                 galaxyIntensity: { type: Type.NUMBER },
-                starFieldDensity: { type: Type.NUMBER },
                 auroraIntensity: { type: Type.NUMBER },
+                sunElevation: { type: Type.NUMBER },
+                progression: { type: Type.NUMBER },
+                evolutionSpeed: { type: Type.NUMBER },
                 celestialBody: { type: Type.STRING },
-                celestialElevation: { type: Type.NUMBER },
-                celestialAzimuth: { type: Type.NUMBER },
-                celestialScale: { type: Type.NUMBER },
-                windSpeed: { type: Type.NUMBER },
               },
             },
             extractedTextures: {
@@ -1131,25 +1201,23 @@ async function createServer() {
                 type: Type.OBJECT,
                 required: [
                   'name',
-                  'targetSurface',
-                  'primaryColorHex',
-                  'secondaryColorHex',
-                  'accentColorHex',
+                  'surfaceRole',
+                  'primaryHex',
+                  'secondaryHex',
+                  'accentHex',
                   'roughness',
                   'metalness',
                   'patternType',
-                  'sourceTimestampSec',
                 ],
                 properties: {
                   name: { type: Type.STRING },
-                  targetSurface: { type: Type.STRING },
-                  primaryColorHex: { type: Type.STRING },
-                  secondaryColorHex: { type: Type.STRING },
-                  accentColorHex: { type: Type.STRING },
+                  surfaceRole: { type: Type.STRING },
+                  primaryHex: { type: Type.STRING },
+                  secondaryHex: { type: Type.STRING },
+                  accentHex: { type: Type.STRING },
                   roughness: { type: Type.NUMBER },
                   metalness: { type: Type.NUMBER },
                   patternType: { type: Type.STRING },
-                  sourceTimestampSec: { type: Type.NUMBER },
                 },
               },
             },
@@ -1165,7 +1233,7 @@ async function createServer() {
                   'target',
                   'fovDeg',
                   'skyProgression',
-                  'caption',
+                  'motionNote',
                 ],
                 properties: {
                   timestampSec: { type: Type.NUMBER },
@@ -1181,7 +1249,7 @@ async function createServer() {
                   },
                   fovDeg: { type: Type.NUMBER },
                   skyProgression: { type: Type.NUMBER },
-                  caption: { type: Type.STRING },
+                  motionNote: { type: Type.STRING },
                 },
               },
             },
@@ -1190,54 +1258,70 @@ async function createServer() {
               required: [
                 'name',
                 'archetype',
-                'tagline',
+                'bio',
+                'introScript',
                 'voiceName',
                 'voiceStyle',
-                'primaryColorHex',
-                'secondaryColorHex',
-                'accentColorHex',
-                'skinColorHex',
-                'eyeColorHex',
                 'headShape',
                 'headgear',
-                'outfitStyle',
-                'propType',
+                'outfit',
+                'propItem',
                 'animationStyle',
+                'palette',
                 'poseKeyframes',
               ],
               properties: {
                 name: { type: Type.STRING },
                 archetype: { type: Type.STRING },
-                tagline: { type: Type.STRING },
+                bio: { type: Type.STRING },
+                introScript: { type: Type.STRING },
                 voiceName: { type: Type.STRING },
                 voiceStyle: { type: Type.STRING },
-                primaryColorHex: { type: Type.STRING },
-                secondaryColorHex: { type: Type.STRING },
-                accentColorHex: { type: Type.STRING },
-                skinColorHex: { type: Type.STRING },
-                eyeColorHex: { type: Type.STRING },
                 headShape: { type: Type.STRING },
                 headgear: { type: Type.STRING },
-                outfitStyle: { type: Type.STRING },
-                propType: { type: Type.STRING },
+                outfit: { type: Type.STRING },
+                propItem: { type: Type.STRING },
                 animationStyle: { type: Type.STRING },
+                palette: {
+                  type: Type.OBJECT,
+                  required: [
+                    'skinHex',
+                    'primaryHex',
+                    'secondaryHex',
+                    'accentHex',
+                    'eyeHex',
+                    'hairHex',
+                  ],
+                  properties: {
+                    skinHex: { type: Type.STRING },
+                    primaryHex: { type: Type.STRING },
+                    secondaryHex: { type: Type.STRING },
+                    accentHex: { type: Type.STRING },
+                    eyeHex: { type: Type.STRING },
+                    hairHex: { type: Type.STRING },
+                  },
+                },
                 poseKeyframes: {
                   type: Type.ARRAY,
                   items: {
                     type: Type.OBJECT,
                     required: [
                       'timestampSec',
-                      'headTiltRad',
-                      'armRaiseRad',
-                      'bounceOffset',
+                      'poseName',
+                      'actionDescription',
+                      'headTiltDeg',
+                      'armRaise',
+                      'bounceAmplitude',
                       'propSpinSpeed',
                       'expression',
                     ],
                     properties: {
                       timestampSec: { type: Type.NUMBER },
-                      headTiltRad: { type: Type.NUMBER },
-                      armRaiseRad: { type: Type.NUMBER },
-                      bounceOffset: { type: Type.NUMBER },
+                      poseName: { type: Type.STRING },
+                      actionDescription: { type: Type.STRING },
+                      headTiltDeg: { type: Type.NUMBER },
+                      armRaise: { type: Type.NUMBER },
+                      bounceAmplitude: { type: Type.NUMBER },
                       propSpinSpeed: { type: Type.NUMBER },
                       expression: { type: Type.STRING },
                     },
@@ -1249,15 +1333,14 @@ async function createServer() {
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
-                required: ['kind', 'position', 'rotationY', 'scale'],
+                required: ['type', 'position', 'rotationY'],
                 properties: {
-                  kind: { type: Type.STRING },
+                  type: { type: Type.STRING },
                   position: {
                     type: Type.ARRAY,
                     items: { type: Type.NUMBER },
                   },
                   rotationY: { type: Type.NUMBER },
-                  scale: { type: Type.NUMBER },
                 },
               },
             },
@@ -1304,19 +1387,15 @@ async function createServer() {
         .slice(0, 28)}-${Date.now().toString(36).slice(-4)}`;
 
       const rawSky = (parsed.skyConfig || {}) as Record<string, unknown>;
+      const presetCandidate = String(rawSky.presetId || 'diurnal-cloudscape') as SkyPresetId;
+      const baseSky =
+        SKY_PRESET_MAP[presetCandidate]?.config ||
+        SKY_PRESET_MAP['diurnal-cloudscape'].config;
+
       const skyConfig: SkySceneConfig = {
-        presetId: ([
-          'diurnal-cloudscape',
-          'andromeda-nebula',
-          'aurora-borealis',
-          'exoplanet-rings',
-          'supernova-remnant',
-          'orbital-eclipse',
-          'pastel-anime-sky',
-          'studio-void',
-        ].includes(String(rawSky.presetId))
-          ? String(rawSky.presetId)
-          : 'diurnal-cloudscape') as SkyPresetId,
+        ...baseSky,
+        presetId: SKY_PRESET_MAP[presetCandidate] ? presetCandidate : 'diurnal-cloudscape',
+        title: String(rawSky.title || packTitle),
         triggerMode: ([
           'orbit-time',
           'hover-reactive',
@@ -1325,36 +1404,49 @@ async function createServer() {
         ].includes(String(rawSky.triggerMode))
           ? String(rawSky.triggerMode)
           : 'scroll-reactive') as SkyTriggerMode,
-        zenithColorHex: cleanHex(rawSky.zenithColorHex, '#133a7c'),
-        horizonColorHex: cleanHex(rawSky.horizonColorHex, '#6fb1e8'),
-        nadirColorHex: cleanHex(rawSky.nadirColorHex, '#0a1222'),
-        cloudColorHex: cleanHex(rawSky.cloudColorHex, '#f8fafc'),
-        nebulaPrimaryHex: cleanHex(rawSky.nebulaPrimaryHex, '#93c5fd'),
-        nebulaSecondaryHex: cleanHex(rawSky.nebulaSecondaryHex, '#fde68a'),
-        cloudDensity: Math.max(0, Math.min(1, Number(rawSky.cloudDensity) ?? 0.72)),
-        cirrusWispiness: Math.max(0, Math.min(1, Number(rawSky.cirrusWispiness) ?? 0.85)),
-        galaxyIntensity: Math.max(0, Math.min(1, Number(rawSky.galaxyIntensity) ?? 0.35)),
-        starFieldDensity: Math.max(0, Math.min(1, Number(rawSky.starFieldDensity) ?? 0.45)),
-        auroraIntensity: Math.max(0, Math.min(1, Number(rawSky.auroraIntensity) ?? 0.25)),
+        zenithHex: cleanHex(rawSky.zenithHex, baseSky.zenithHex),
+        horizonHex: cleanHex(rawSky.horizonHex, baseSky.horizonHex),
+        nadirHex: cleanHex(rawSky.nadirHex, baseSky.nadirHex),
+        cloudPrimaryHex: cleanHex(rawSky.cloudPrimaryHex, baseSky.cloudPrimaryHex),
+        cloudAccentHex: cleanHex(rawSky.cloudAccentHex, baseSky.cloudAccentHex),
+        nebulaPrimaryHex: cleanHex(rawSky.nebulaPrimaryHex, baseSky.nebulaPrimaryHex),
+        nebulaSecondaryHex: cleanHex(rawSky.nebulaSecondaryHex, baseSky.nebulaSecondaryHex),
+        sunHex: cleanHex(rawSky.sunHex, baseSky.sunHex),
+        cloudDensity: Math.max(0, Math.min(1, Number(rawSky.cloudDensity ?? baseSky.cloudDensity))),
+        cloudScale: Math.max(0.8, Math.min(4.0, Number(rawSky.cloudScale ?? baseSky.cloudScale))),
+        cirrusWisps: Math.max(0, Math.min(1, Number(rawSky.cirrusWisps ?? baseSky.cirrusWisps))),
+        starIntensity: Math.max(
+          0,
+          Math.min(1.2, Number(rawSky.starIntensity ?? baseSky.starIntensity))
+        ),
+        galaxyIntensity: Math.max(
+          0,
+          Math.min(1.2, Number(rawSky.galaxyIntensity ?? baseSky.galaxyIntensity))
+        ),
+        auroraIntensity: Math.max(
+          0,
+          Math.min(1.2, Number(rawSky.auroraIntensity ?? baseSky.auroraIntensity))
+        ),
+        sunElevation: Math.max(
+          0.05,
+          Math.min(0.9, Number(rawSky.sunElevation ?? baseSky.sunElevation))
+        ),
+        progression: Math.max(0, Math.min(1, Number(rawSky.progression ?? baseSky.progression))),
+        evolutionSpeed: Math.max(
+          0.05,
+          Math.min(1.5, Number(rawSky.evolutionSpeed ?? baseSky.evolutionSpeed))
+        ),
         celestialBody: ([
-          'sun-disc',
-          'crescent-moon',
-          'ringed-gas-giant',
-          'binary-suns',
-          'solar-eclipse',
-          'spiral-galaxy-core',
+          'none',
+          'spiral-galaxy',
+          'ringed-planet',
+          'twin-suns',
+          'eclipse-corona',
+          'comet-shower',
         ].includes(String(rawSky.celestialBody))
           ? String(rawSky.celestialBody)
-          : 'sun-disc') as SkySceneConfig['celestialBody'],
-        celestialElevation: Math.max(
-          0.1,
-          Math.min(0.9, Number(rawSky.celestialElevation) || 0.56)
-        ),
-        celestialAzimuth: Math.max(0, Math.min(1, Number(rawSky.celestialAzimuth) || 0.35)),
-        celestialScale: Math.max(0.5, Math.min(2.4, Number(rawSky.celestialScale) || 1.1)),
-        windSpeed: Math.max(0.05, Math.min(2.0, Number(rawSky.windSpeed) || 0.45)),
-        scrollProgress: 0.35,
-        skyOnlyMode: false,
+          : baseSky.celestialBody) as SkySceneConfig['celestialBody'],
+        immersiveSkyOnly: false,
       };
 
       const rawTextures = Array.isArray(parsed.extractedTextures)
@@ -1365,37 +1457,36 @@ async function createServer() {
         .map((t: Record<string, unknown>, idx: number) => ({
           id: `tex-${idx + 1}`,
           name: String(t.name || `Keyframe Surface ${idx + 1}`),
-          targetSurface:
-            t.targetSurface === 'stage-floor' ||
-            t.targetSurface === 'hero-finish' ||
-            t.targetSurface === 'character-outfit'
-              ? t.targetSurface
+          surfaceRole:
+            t.surfaceRole === 'stage-floor' ||
+            t.surfaceRole === 'hero-finish' ||
+            t.surfaceRole === 'character-outfit'
+              ? t.surfaceRole
               : 'sky-cloud',
-          primaryColorHex: cleanHex(
-            t.primaryColorHex,
+          primaryHex: cleanHex(
+            t.primaryHex,
             keyframes[idx % Math.max(1, keyframes.length)]?.dominantHex || '#38bdf8'
           ),
-          secondaryColorHex: cleanHex(t.secondaryColorHex, '#1e293b'),
-          accentColorHex: cleanHex(t.accentColorHex, '#f8fafc'),
+          secondaryHex: cleanHex(t.secondaryHex, '#1e293b'),
+          accentHex: cleanHex(t.accentHex, '#f8fafc'),
           roughness: Math.max(0.05, Math.min(0.95, Number(t.roughness) || 0.35)),
           metalness: Math.max(0, Math.min(1, Number(t.metalness) || 0.4)),
           patternType:
-            t.patternType === 'nebula-marble' ||
-            t.patternType === 'architectural-grid' ||
-            t.patternType === 'anodized-brushed'
+            t.patternType === 'nebula-swirl' ||
+            t.patternType === 'travertine-vein' ||
+            t.patternType === 'cel-halftone' ||
+            t.patternType === 'metallic-brush'
               ? t.patternType
-              : 'cirrus-wisps',
-          sourceTimestampSec: Number(t.sourceTimestampSec ?? idx * 1.2),
+              : 'cirrus-wisp',
         }));
 
       const rawCamPath = Array.isArray(parsed.cameraPath) ? parsed.cameraPath : [];
       const cameraPath: ExtractedCameraKeyframe[] = rawCamPath
         .slice(0, 6)
         .map((ck: Record<string, unknown>, idx: number) => {
-          const posArr = Array.isArray(ck.position) ? ck.position.map(Number) : [0, 1.55, 0.35];
-          const tgtArr = Array.isArray(ck.target) ? ck.target.map(Number) : [0, 1.05, -2.1];
+          const posArr = Array.isArray(ck.position) ? ck.position.map(Number) : [0, 1.55, 0.45];
+          const tgtArr = Array.isArray(ck.target) ? ck.target.map(Number) : [0, 1.05, -1.25];
           return {
-            index: idx,
             timestampSec: Number(ck.timestampSec ?? keyframes[idx]?.timestampSec ?? idx * 1.5),
             shotId: ([
               'establishing',
@@ -1416,19 +1507,19 @@ async function createServer() {
             position: [
               Number.isFinite(posArr[0]) ? posArr[0] : 0,
               Number.isFinite(posArr[1]) ? Math.max(0.5, Math.min(3.5, posArr[1])) : 1.55,
-              Number.isFinite(posArr[2]) ? posArr[2] : 0.35,
+              Number.isFinite(posArr[2]) ? posArr[2] : 0.45,
             ],
             target: [
               Number.isFinite(tgtArr[0]) ? tgtArr[0] : 0,
               Number.isFinite(tgtArr[1]) ? tgtArr[1] : 1.05,
-              Number.isFinite(tgtArr[2]) ? tgtArr[2] : -2.1,
+              Number.isFinite(tgtArr[2]) ? tgtArr[2] : -1.25,
             ],
             fovDeg: Math.max(32, Math.min(68, Number(ck.fovDeg) || 46)),
             skyProgression: Math.max(
               0,
               Math.min(1, Number(ck.skyProgression ?? idx / Math.max(1, rawCamPath.length - 1)))
             ),
-            caption: String(ck.caption || `Keyframe ${idx + 1} Camera Node`),
+            motionNote: String(ck.motionNote || `Keyframe ${idx + 1} camera sweep`),
           };
         });
 
@@ -1457,46 +1548,54 @@ async function createServer() {
       }
 
       const rawChar = (parsed.character || {}) as Record<string, unknown>;
+      const rawCharPal = (rawChar.palette || {}) as Record<string, unknown>;
       const rawPoses = Array.isArray(rawChar.poseKeyframes) ? rawChar.poseKeyframes : [];
-      const character: CharacterRigSpec = {
-        id: `char-${Date.now().toString(36)}`,
-        name: String(rawChar.name || 'Cirrus Voyager'),
-        archetype: String(rawChar.archetype || 'Sky Keyframe Host'),
-        stylePreset: 'pixar-toon',
-        tagline: String(rawChar.tagline || `Welcome to ${packTitle}!`),
-        voiceName: (VALID_VOICES.has(String(rawChar.voiceName || ''))
-          ? String(rawChar.voiceName)
-          : 'Kore') as VoiceName,
-        voiceStyle: String(rawChar.voiceStyle || 'Expressive spatial guide'),
-        primaryColorHex: cleanHex(rawChar.primaryColorHex, skyConfig.horizonColorHex),
-        secondaryColorHex: cleanHex(rawChar.secondaryColorHex, skyConfig.zenithColorHex),
-        accentColorHex: cleanHex(rawChar.accentColorHex, skyConfig.nebulaSecondaryHex),
-        skinColorHex: cleanHex(rawChar.skinColorHex, '#fcd34d'),
-        eyeColorHex: cleanHex(rawChar.eyeColorHex, '#38bdf8'),
-        headShape: 'astronaut',
-        headgear: 'visor',
-        outfitStyle: 'astro-suit',
-        propType: 'star-wand',
-        proportions: {
-          headScale: 1.2,
-          torsoHeight: 0.42,
-          limbLength: 0.28,
-          capeLength: 0.48,
-        },
-        animationStyle: 'cosmic-float',
-        poseKeyframes: rawPoses.slice(0, 6).map((kf: Record<string, unknown>, idx: number) => ({
+      const characterPoses: CharacterPoseKeyframe[] = rawPoses
+        .slice(0, 6)
+        .map((kf: Record<string, unknown>, idx: number) => ({
           timestampSec: Number(kf.timestampSec ?? keyframes[idx]?.timestampSec ?? idx * 1.4),
-          headTiltRad: Math.max(-0.45, Math.min(0.45, Number(kf.headTiltRad) || 0.12)),
-          armRaiseRad: Math.max(0, Math.min(1.4, Number(kf.armRaiseRad) || 0.4)),
-          bounceOffset: Math.max(0, Math.min(0.12, Number(kf.bounceOffset) || 0.035)),
+          poseName: String(kf.poseName || `Keyframe Pose ${idx + 1}`),
+          actionDescription: String(
+            kf.actionDescription || 'Dynamic cartoon pose synced to video beat'
+          ),
+          headTiltDeg: Math.max(-28, Math.min(28, Number(kf.headTiltDeg) || 8)),
+          armRaise: Math.max(0, Math.min(1.4, Number(kf.armRaise) || 0.4)),
+          bounceAmplitude: Math.max(0, Math.min(0.12, Number(kf.bounceAmplitude) || 0.035)),
           propSpinSpeed: Math.max(0.2, Math.min(3.5, Number(kf.propSpinSpeed) || 1.3)),
           expression:
             kf.expression === 'curious' ||
             kf.expression === 'heroic' ||
-            kf.expression === 'surprised'
+            kf.expression === 'serene'
               ? kf.expression
               : 'joyful',
-        })),
+        }));
+
+      const character: CharacterRigSpec = {
+        id: `char-${Date.now().toString(36)}`,
+        name: String(rawChar.name || 'Cirrus Voyager'),
+        archetype: String(rawChar.archetype || 'Sky Keyframe Host'),
+        stylePreset: 'pixar-cinematic',
+        bio: String(rawChar.bio || `Generated from ${videoName} keyframes.`),
+        voiceName: (VALID_VOICES.has(String(rawChar.voiceName || ''))
+          ? String(rawChar.voiceName)
+          : 'Kore') as VoiceName,
+        voiceStyle: String(rawChar.voiceStyle || 'Expressive spatial guide'),
+        introScript: String(rawChar.introScript || `Welcome to ${packTitle}!`),
+        headShape: 'rounded',
+        headgear: 'astronaut-helmet',
+        outfit: 'explorer',
+        propItem: 'star-wand',
+        animationStyle: 'floating-cosmic',
+        scaleHeight: 1.0,
+        palette: {
+          skinHex: cleanHex(rawCharPal.skinHex, '#f6c7a8'),
+          primaryHex: cleanHex(rawCharPal.primaryHex, skyConfig.horizonHex),
+          secondaryHex: cleanHex(rawCharPal.secondaryHex, skyConfig.zenithHex),
+          accentHex: cleanHex(rawCharPal.accentHex, skyConfig.nebulaSecondaryHex),
+          eyeHex: cleanHex(rawCharPal.eyeHex, '#38bdf8'),
+          hairHex: cleanHex(rawCharPal.hairHex, '#4f46e5'),
+        },
+        poseKeyframes: characterPoses,
         portraitDataUrl: coverArtDataUrl,
       };
 
@@ -1504,26 +1603,25 @@ async function createServer() {
       const sceneryProps = rawScenery
         .slice(0, 5)
         .map((sp: Record<string, unknown>, idx: number) => {
-          const kindRaw = String(sp.kind || 'lantern');
-          const kind: SceneryPropType =
-            kindRaw === 'pine' ||
-            kindRaw === 'boulders' ||
-            kindRaw === 'lantern' ||
-            kindRaw === 'arch'
-              ? kindRaw
+          const typeRaw = String(sp.type || sp.kind || 'lantern');
+          const type: SceneryPropType =
+            typeRaw === 'pine' ||
+            typeRaw === 'boulders' ||
+            typeRaw === 'lantern' ||
+            typeRaw === 'arch'
+              ? typeRaw
               : idx % 2 === 0
                 ? 'lantern'
                 : 'boulders';
           const pos = Array.isArray(sp.position) ? sp.position.map(Number) : [];
           return {
-            kind,
+            type,
             position: [
               Number.isFinite(pos[0]) ? Math.max(-2.4, Math.min(2.4, pos[0])) : (idx - 1.5) * 1.1,
               0,
-              Number.isFinite(pos[2]) ? Math.max(-3.3, Math.min(-1.1, pos[2])) : -2.2,
+              Number.isFinite(pos[2]) ? Math.max(-2.8, Math.min(-0.4, pos[2])) : -1.8,
             ] as [number, number, number],
             rotationY: Number(sp.rotationY) || 0,
-            scale: Math.max(0.65, Math.min(1.6, Number(sp.scale) || 1)),
           };
         });
 
@@ -1551,32 +1649,36 @@ async function createServer() {
         }));
 
       const environmentId = ([
-        'atelier',
-        'observatory',
-        'botanical',
-        'cyberloft',
-      ].includes(String(parsed.environmentId).toLowerCase())
-        ? String(parsed.environmentId).toLowerCase()
-        : 'observatory') as EnvironmentLevelId;
+        'studio-stage',
+        'architectural-atrium',
+        'twilight-forest',
+        'coastal-observatory',
+        'orbital-lab',
+        'primetech-vault',
+        'iamscene-circuit',
+      ].includes(String(parsed.environmentId))
+        ? String(parsed.environmentId)
+        : 'coastal-observatory') as EnvironmentLevelId;
       const moodId = (['studio', 'sunset', 'twilight', 'noir', 'dawn'].includes(
         String(parsed.moodId)
       )
         ? String(parsed.moodId)
         : 'studio') as AtmosphereMoodId;
-      const subjectId = (['astrolabe', 'orion', 'botanica', 'chronos', 'prism'].includes(
-        String(parsed.subjectId)
-      )
+      const subjectId = ([
+        'astrolabe',
+        'pavilion',
+        'vox',
+        'terrarium',
+        'primetech-cadmesh',
+        'primetech-plinth',
+      ].includes(String(parsed.subjectId))
         ? String(parsed.subjectId)
         : 'astrolabe') as StudioSubjectId;
-      const finishId = ([
-        'brushedBrass',
-        'obsidianChrome',
-        'ceramicAlabaster',
-        'emeraldAnodized',
-        'roseTitanium',
-      ].includes(String(parsed.finishId))
+      const finishId = (['gold', 'titanium', 'obsidian', 'copper', 'iridescent'].includes(
+        String(parsed.finishId)
+      )
         ? String(parsed.finishId)
-        : 'brushedBrass') as MaterialFinishId;
+        : 'gold') as FinishId;
 
       const mainTemplate = templatesRepo.createTemplate({
         sku: `SAM-PACK-${Date.now().toString(36).toUpperCase()}`,
@@ -1597,7 +1699,7 @@ async function createServer() {
           keyframeCount: keyframes.length,
           textureCount: extractedTextures.length,
           cameraNodeCount: cameraPath.length,
-          poseKeyframeCount: character.poseKeyframes?.length || 0,
+          poseKeyframeCount: characterPoses.length,
         },
         payload: {
           packSlug,
@@ -1610,6 +1712,7 @@ async function createServer() {
           extractedTextures,
           cameraPath,
           character,
+          characterPoses,
           sceneryProps,
           beats,
           coverArtDataUrl,
@@ -1632,7 +1735,7 @@ async function createServer() {
         pack_title: packTitle,
         category: 'sky',
         title: `${packTitle} — Procedural Sky Dome`,
-        description: `Keyframe-extracted sky shader (${skyConfig.zenithColorHex} → ${skyConfig.horizonColorHex}) with ${skyConfig.triggerMode} trigger.`,
+        description: `Keyframe-extracted sky shader (${skyConfig.zenithHex} → ${skyConfig.horizonHex}) with ${skyConfig.triggerMode} trigger.`,
         use_case: 'Hover/scroll reactive procedural sky dome extracted from video keyframes',
         tags: ['sky', skyConfig.presetId, skyConfig.triggerMode],
         specs: {
@@ -1664,6 +1767,8 @@ async function createServer() {
         sceneryProps,
         extractedTextures,
         cameraPath,
+        characterPoses,
+        sourceKeyframes: keyframes,
         beats,
         templates: [mainTemplate, skyTemplate],
       });

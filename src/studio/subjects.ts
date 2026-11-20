@@ -44,6 +44,10 @@ export function createStudioSubject(
   materials: StudioMaterialLibrary
 ): StudioSubjectInstance {
   switch (id) {
+    case 'primetech-cadmesh':
+      return buildPrimeTechCadMesh(materials);
+    case 'primetech-plinth':
+      return buildPrimeTechPlinth(materials);
     case 'astrolabe':
       return buildAstrolabe(materials);
     case 'pavilion':
@@ -627,3 +631,676 @@ function buildTerrarium(materials: StudioMaterialLibrary): StudioSubjectInstance
     },
   };
 }
+
+/**
+ * Generates the 4 distinct faceted polygon shapes forming PrimeTech's signature geometric "P" emblem,
+ * matching the interlocking origami/CAD bevel segments in both hero visuals.
+ */
+function createPrimeTechFacetShapes(scale = 0.085): THREE.Shape[] {
+  const poly = (pts: Array<[number, number]>): THREE.Shape => {
+    const s = new THREE.Shape();
+    s.moveTo(pts[0][0] * scale, pts[0][1] * scale);
+    for (let i = 1; i < pts.length; i++) {
+      s.lineTo(pts[i][0] * scale, pts[i][1] * scale);
+    }
+    s.closePath();
+    return s;
+  };
+
+  // 1. Top angled bridge wedge
+  const topWedge = poly([
+    [-0.56, 0.44],
+    [-0.24, 0.88],
+    [0.24, 0.88],
+    [0.06, 0.44],
+  ]);
+
+  // 2. Upper-right swept shoulder wing
+  const rightWing = poly([
+    [0.32, 0.84],
+    [0.68, 0.34],
+    [0.44, -0.08],
+    [0.14, 0.36],
+  ]);
+
+  // 3. Lower-right counter bar closing the P counter-space
+  const lowerBar = poly([
+    [-0.08, -0.02],
+    [0.54, -0.02],
+    [0.32, -0.34],
+    [-0.24, -0.34],
+  ]);
+
+  // 4. Left diagonal spine & tapered heel
+  const leftSpine = poly([
+    [-0.6, 0.36],
+    [-0.26, 0.36],
+    [-0.28, -0.84],
+    [-0.6, -0.44],
+  ]);
+
+  return [topWedge, rightWing, lowerBar, leftSpine];
+}
+
+function createRoundedRectShape(width: number, height: number, radius: number): THREE.Shape {
+  const s = new THREE.Shape();
+  const hw = width * 0.5;
+  const hh = height * 0.5;
+  const r = Math.min(radius, hw, hh);
+  s.moveTo(-hw + r, -hh);
+  s.lineTo(hw - r, -hh);
+  s.quadraticCurveTo(hw, -hh, hw, -hh + r);
+  s.lineTo(hw, hh - r);
+  s.quadraticCurveTo(hw, hh, hw - r, hh);
+  s.lineTo(-hw + r, hh);
+  s.quadraticCurveTo(-hw, hh, -hw, hh - r);
+  s.lineTo(-hw, -hh + r);
+  s.quadraticCurveTo(-hw, -hh, -hw + r, -hh);
+  return s;
+}
+
+/**
+ * Scene 1 — PrimeTech CadMesh Terrain Monolith
+ * Machined obsidian CAD bulkhead armor plates, crisp white/ice-cyan backlit seams,
+ * sculpted metallic PrimeTech faceted P emblem + divider bar, and an animated 3D wireframe terrain point-cloud.
+ */
+function buildPrimeTechCadMesh(materials: StudioMaterialLibrary): StudioSubjectInstance {
+  const root = new THREE.Group();
+  root.name = 'PrimeTechCadMesh';
+  const explodableParts: ExplodablePart[] = [];
+  const geometries: THREE.BufferGeometry[] = [];
+  const localMaterials: THREE.Material[] = [];
+
+  const trackGeo = <T extends THREE.BufferGeometry>(g: T): T => {
+    geometries.push(g);
+    return g;
+  };
+  const trackMat = <T extends THREE.Material>(m: T): T => {
+    localMaterials.push(m);
+    return m;
+  };
+
+  const obsidianMat = trackMat(
+    new THREE.MeshStandardMaterial({
+      color: 0x11141b,
+      metalness: 0.72,
+      roughness: 0.28,
+    })
+  );
+  const brushedSilverMat = trackMat(
+    new THREE.MeshPhysicalMaterial({
+      color: 0xe6ecf4,
+      metalness: 0.92,
+      roughness: 0.18,
+      clearcoat: 0.35,
+      clearcoatRoughness: 0.15,
+    })
+  );
+  const seamGlowMat = trackMat(
+    new THREE.MeshStandardMaterial({
+      color: 0xf4f9ff,
+      emissive: 0xdaf0ff,
+      emissiveIntensity: 1.85,
+      roughness: 0.15,
+      metalness: 0.1,
+    })
+  );
+
+  // 1. Chamfered obsidian datum base plate (flush at y = 0)
+  const datumShape = createRoundedRectShape(0.46, 0.32, 0.024);
+  const datumGeo = trackGeo(
+    new THREE.ExtrudeGeometry(datumShape, {
+      depth: 0.022,
+      bevelEnabled: true,
+      bevelSegments: 2,
+      bevelSize: 0.006,
+      bevelThickness: 0.006,
+    })
+  );
+  datumGeo.rotateX(-Math.PI / 2);
+  datumGeo.translate(0, 0.006, 0);
+  const datumBase = new THREE.Mesh(datumGeo, obsidianMat);
+  root.add(datumBase);
+  registerPart(explodableParts, datumBase, new THREE.Vector3(0, -0.06, 0));
+
+  // 2. Angular obsidian backplate baffle (mirrors the stepped diagonal bulkhead framing)
+  const baffleShape = new THREE.Shape();
+  baffleShape.moveTo(-0.22, 0.0);
+  baffleShape.lineTo(0.22, 0.0);
+  baffleShape.lineTo(0.22, 0.25);
+  baffleShape.lineTo(0.08, 0.32);
+  baffleShape.lineTo(-0.14, 0.32);
+  baffleShape.lineTo(-0.22, 0.2);
+  baffleShape.closePath();
+
+  const baffleGeo = trackGeo(
+    new THREE.ExtrudeGeometry(baffleShape, {
+      depth: 0.018,
+      bevelEnabled: true,
+      bevelSegments: 2,
+      bevelSize: 0.004,
+      bevelThickness: 0.004,
+    })
+  );
+  const backBaffle = new THREE.Mesh(baffleGeo, obsidianMat);
+  backBaffle.position.set(0, 0.032, -0.078);
+  root.add(backBaffle);
+  registerPart(explodableParts, backBaffle, new THREE.Vector3(0, 0.04, -0.16));
+
+  // 3. Left & Right stepped armor wing plates (exploded forward & outward)
+  const leftWingShape = new THREE.Shape();
+  leftWingShape.moveTo(0, 0);
+  leftWingShape.lineTo(0.095, 0);
+  leftWingShape.lineTo(0.042, 0.145);
+  leftWingShape.lineTo(0.082, 0.265);
+  leftWingShape.lineTo(0, 0.265);
+  leftWingShape.closePath();
+  const leftWingGeo = trackGeo(
+    new THREE.ExtrudeGeometry(leftWingShape, {
+      depth: 0.016,
+      bevelEnabled: true,
+      bevelSegments: 2,
+      bevelSize: 0.003,
+      bevelThickness: 0.003,
+    })
+  );
+  const leftWing = new THREE.Mesh(leftWingGeo, obsidianMat);
+  leftWing.position.set(-0.225, 0.042, -0.045);
+  leftWing.rotation.y = 0.16;
+  root.add(leftWing);
+  registerPart(explodableParts, leftWing, new THREE.Vector3(-0.15, 0.03, 0.06));
+
+  const rightCornerShape = new THREE.Shape();
+  rightCornerShape.moveTo(0, 0);
+  rightCornerShape.lineTo(0.11, 0);
+  rightCornerShape.lineTo(0.11, 0.13);
+  rightCornerShape.lineTo(0.04, 0.13);
+  rightCornerShape.closePath();
+  const rightCornerGeo = trackGeo(
+    new THREE.ExtrudeGeometry(rightCornerShape, {
+      depth: 0.016,
+      bevelEnabled: true,
+      bevelSegments: 2,
+      bevelSize: 0.003,
+      bevelThickness: 0.003,
+    })
+  );
+  const rightHood = new THREE.Mesh(rightCornerGeo, obsidianMat);
+  rightHood.position.set(0.105, 0.21, -0.042);
+  rightHood.rotation.y = -0.14;
+  root.add(rightHood);
+  registerPart(explodableParts, rightHood, new THREE.Vector3(0.14, 0.09, 0.05));
+
+  // 4. Crisp luminous CAD seam rails along bulkhead bevels
+  const seamCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-0.205, 0.048, -0.03),
+    new THREE.Vector3(-0.145, 0.18, -0.038),
+    new THREE.Vector3(-0.105, 0.305, -0.048),
+    new THREE.Vector3(0.085, 0.305, -0.048),
+    new THREE.Vector3(0.195, 0.21, -0.038),
+  ]);
+  const seamTubeGeo = trackGeo(new THREE.TubeGeometry(seamCurve, 36, 0.0026, 8, false));
+  const seamRail = new THREE.Mesh(seamTubeGeo, seamGlowMat);
+  root.add(seamRail);
+  registerPart(explodableParts, seamRail, new THREE.Vector3(0, 0.08, -0.08));
+
+  const baseSeamGeo = trackGeo(new THREE.BoxGeometry(0.42, 0.0035, 0.0035));
+  const baseSeam = new THREE.Mesh(baseSeamGeo, seamGlowMat);
+  baseSeam.position.set(0, 0.034, 0.146);
+  root.add(baseSeam);
+  registerPart(explodableParts, baseSeam, new THREE.Vector3(0, 0.01, 0.08));
+
+  // 5. Sculpted PrimeTech 4-facet metallic P emblem + vertical divider bar
+  const emblemGroup = new THREE.Group();
+  emblemGroup.position.set(-0.045, 0.215, -0.04);
+  const facetShapes = createPrimeTechFacetShapes(0.082);
+  const emblemMeshes: THREE.Mesh[] = [];
+  for (const s of facetShapes) {
+    const fGeo = trackGeo(
+      new THREE.ExtrudeGeometry(s, {
+        depth: 0.018,
+        bevelEnabled: true,
+        bevelSegments: 2,
+        bevelSize: 0.0022,
+        bevelThickness: 0.0022,
+      })
+    );
+    const m = new THREE.Mesh(fGeo, brushedSilverMat);
+    emblemGroup.add(m);
+    emblemMeshes.push(m);
+  }
+  const dividerGeo = trackGeo(new THREE.BoxGeometry(0.0032, 0.132, 0.006));
+  const dividerBar = new THREE.Mesh(dividerGeo, seamGlowMat);
+  dividerBar.position.set(0.082, 0.0, 0.006);
+  emblemGroup.add(dividerBar);
+
+  // Sculpted extruded 3D "P R I M E T E C H" stencil wordmark beside the divider
+  const createStencilRect = (x: number, y: number, w: number, h: number): THREE.Shape => {
+    const s = new THREE.Shape();
+    s.moveTo(x, y);
+    s.lineTo(x + w, y);
+    s.lineTo(x + w, y + h);
+    s.lineTo(x, y + h);
+    s.closePath();
+    return s;
+  };
+  const lettersGroup = new THREE.Group();
+  lettersGroup.position.set(0.094, -0.011, 0.002);
+  const lh = 0.022;
+  const lw = 0.016;
+  const st = 0.0038;
+  const gap = 0.0205;
+  const glyphs: Array<{ shapes: THREE.Shape[] }> = [
+    // P
+    {
+      shapes: [
+        createStencilRect(0, 0, st, lh),
+        createStencilRect(0, lh - st, lw, st),
+        createStencilRect(0, lh * 0.48, lw, st),
+        createStencilRect(lw - st, lh * 0.48, st, lh * 0.52),
+      ],
+    },
+    // R
+    {
+      shapes: [
+        createStencilRect(0, 0, st, lh),
+        createStencilRect(0, lh - st, lw, st),
+        createStencilRect(0, lh * 0.48, lw, st),
+        createStencilRect(lw - st, lh * 0.48, st, lh * 0.52),
+        createStencilRect(lw - st * 1.15, 0, st, lh * 0.48),
+      ],
+    },
+    // I
+    {
+      shapes: [createStencilRect(lw * 0.35, 0, st, lh)],
+    },
+    // M
+    {
+      shapes: [
+        createStencilRect(0, 0, st, lh),
+        createStencilRect(lw - st, 0, st, lh),
+        createStencilRect(0, lh - st, lw, st),
+        createStencilRect(lw * 0.5 - st * 0.5, lh * 0.3, st, lh * 0.7),
+      ],
+    },
+    // E
+    {
+      shapes: [
+        createStencilRect(0, 0, st, lh),
+        createStencilRect(0, lh - st, lw, st),
+        createStencilRect(0, lh * 0.48, lw * 0.85, st),
+        createStencilRect(0, 0, lw, st),
+      ],
+    },
+    // T
+    {
+      shapes: [
+        createStencilRect(0, lh - st, lw, st),
+        createStencilRect(lw * 0.5 - st * 0.5, 0, st, lh),
+      ],
+    },
+    // E
+    {
+      shapes: [
+        createStencilRect(0, 0, st, lh),
+        createStencilRect(0, lh - st, lw, st),
+        createStencilRect(0, lh * 0.48, lw * 0.85, st),
+        createStencilRect(0, 0, lw, st),
+      ],
+    },
+    // C
+    {
+      shapes: [
+        createStencilRect(0, 0, st, lh),
+        createStencilRect(0, lh - st, lw, st),
+        createStencilRect(0, 0, lw, st),
+      ],
+    },
+    // H
+    {
+      shapes: [
+        createStencilRect(0, 0, st, lh),
+        createStencilRect(lw - st, 0, st, lh),
+        createStencilRect(0, lh * 0.48, lw, st),
+      ],
+    },
+  ];
+  const wordmarkMeshes: THREE.Mesh[] = [];
+  glyphs.forEach((g, idx) => {
+    const gx = idx * gap;
+    for (const s of g.shapes) {
+      const gGeo = trackGeo(
+        new THREE.ExtrudeGeometry(s, {
+          depth: 0.008,
+          bevelEnabled: true,
+          bevelSegments: 1,
+          bevelSize: 0.0008,
+          bevelThickness: 0.0008,
+        })
+      );
+      const gm = new THREE.Mesh(gGeo, brushedSilverMat);
+      gm.position.x = gx;
+      lettersGroup.add(gm);
+      wordmarkMeshes.push(gm);
+    }
+  });
+  emblemGroup.add(lettersGroup);
+
+  root.add(emblemGroup);
+  registerPart(explodableParts, emblemGroup, new THREE.Vector3(0, 0.14, 0.14));
+
+  // 6. Undulating 3D wireframe terrain heightfield + luminous vertex points
+  const terrainCols = 26;
+  const terrainRows = 16;
+  const terrainW = 0.41;
+  const terrainD = 0.21;
+  const terrainPlane = trackGeo(
+    new THREE.PlaneGeometry(terrainW, terrainD, terrainCols - 1, terrainRows - 1)
+  );
+  terrainPlane.rotateX(-Math.PI / 2);
+
+  const wireGeo = trackGeo(new THREE.WireframeGeometry(terrainPlane));
+  const wireMat = trackMat(
+    new THREE.LineBasicMaterial({
+      color: 0xdbeafe,
+      transparent: true,
+      opacity: 0.72,
+    })
+  );
+  const wireLines = new THREE.LineSegments(wireGeo, wireMat);
+
+  const ptsGeo = trackGeo(terrainPlane.clone());
+  const ptsMat = trackMat(
+    new THREE.PointsMaterial({
+      color: 0xffffff,
+      size: 0.0065,
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: 0.92,
+    })
+  );
+  const terrainPts = new THREE.Points(ptsGeo, ptsMat);
+
+  const terrainGroup = new THREE.Group();
+  terrainGroup.position.set(0.015, 0.044, 0.042);
+  terrainGroup.add(wireLines, terrainPts);
+  root.add(terrainGroup);
+  registerPart(explodableParts, terrainGroup, new THREE.Vector3(0.04, 0.09, 0.12));
+
+  // Subtle metallic strut pins connecting terrain deck to base
+  const pinGeo = trackGeo(new THREE.CylinderGeometry(0.005, 0.006, 0.024, 12));
+  const pinPositions: Array<[number, number]> = [
+    [-0.17, 0.11],
+    [0.17, 0.11],
+    [0.17, -0.02],
+  ];
+  for (const [px, pz] of pinPositions) {
+    const pin = new THREE.Mesh(pinGeo, materials.secondaryMetal);
+    pin.position.set(px, 0.036, pz);
+    root.add(pin);
+  }
+
+  enableShadows(root, true, true);
+
+  const updateTerrain = (elapsed: number, audio: AudioLevels) => {
+    const ptsAttr = ptsGeo.attributes.position as THREE.BufferAttribute;
+    const boost = 1 + audio.overall * 1.4;
+    const heightAt = (x: number, z: number): number => {
+      const ridge1 =
+        Math.sin(x * 16.5 + elapsed * 1.15) * Math.cos(z * 19.0 - elapsed * 0.85) * 0.026;
+      const ridge2 = Math.sin((x + z) * 24.0 - elapsed * 1.6) * 0.014;
+      const rightPeak = Math.max(0, x + 0.06) * 0.18;
+      return Math.max(0.002, (0.02 + ridge1 + ridge2 + rightPeak) * boost);
+    };
+
+    for (let i = 0; i < ptsAttr.count; i++) {
+      const vx = ptsAttr.getX(i);
+      const vz = ptsAttr.getZ(i);
+      ptsAttr.setY(i, heightAt(vx, vz));
+    }
+    ptsAttr.needsUpdate = true;
+
+    const wireAttr = wireGeo.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < wireAttr.count; i++) {
+      const vx = wireAttr.getX(i);
+      const vz = wireAttr.getZ(i);
+      wireAttr.setY(i, heightAt(vx, vz));
+    }
+    wireAttr.needsUpdate = true;
+  };
+  updateTerrain(0, { overall: 0, low: 0, mid: 0, high: 0, isPlaying: false });
+
+  return {
+    id: 'primetech-cadmesh',
+    root,
+    explodableParts,
+    primaryMetalMeshes: [...emblemMeshes, ...wordmarkMeshes],
+    accentMeshes: [datumBase, backBaffle, leftWing, rightHood],
+    emissiveMeshes: [seamRail, baseSeam, dividerBar],
+    updateAnimation: (elapsed, _delta, audio) => {
+      updateTerrain(elapsed, audio);
+      seamGlowMat.emissiveIntensity = 1.65 + audio.overall * 2.1;
+      emblemGroup.position.y = 0.215 + Math.sin(elapsed * 1.25) * 0.005;
+    },
+    dispose: () => {
+      geometries.forEach((g) => g.dispose());
+      localMaterials.forEach((m) => m.dispose());
+    },
+  };
+}
+
+/**
+ * Scene 2 — PrimeTech Emblem Plinth
+ * Satin ceramic-white rounded-square monolith tile with recessed obsidian PrimeTech P relief,
+ * brushed stainless side bevel trim, perched on a multi-tiered dark titanium CAD plinth
+ * with glowing ice-white chamfer seams and sweeping curved architectural back fins.
+ */
+function buildPrimeTechPlinth(materials: StudioMaterialLibrary): StudioSubjectInstance {
+  const root = new THREE.Group();
+  root.name = 'PrimeTechEmblemPlinth';
+  const explodableParts: ExplodablePart[] = [];
+  const geometries: THREE.BufferGeometry[] = [];
+  const localMaterials: THREE.Material[] = [];
+
+  const trackGeo = <T extends THREE.BufferGeometry>(g: T): T => {
+    geometries.push(g);
+    return g;
+  };
+  const trackMat = <T extends THREE.Material>(m: T): T => {
+    localMaterials.push(m);
+    return m;
+  };
+
+  const darkTitaniumMat = trackMat(
+    new THREE.MeshPhysicalMaterial({
+      color: 0x161a23,
+      metalness: 0.82,
+      roughness: 0.24,
+      clearcoat: 0.35,
+      clearcoatRoughness: 0.16,
+    })
+  );
+  const ceramicWhiteMat = trackMat(
+    new THREE.MeshPhysicalMaterial({
+      color: 0xf4f7fb,
+      metalness: 0.08,
+      roughness: 0.22,
+      clearcoat: 0.72,
+      clearcoatRoughness: 0.12,
+    })
+  );
+  const brushedBezelMat = trackMat(
+    new THREE.MeshStandardMaterial({
+      color: 0xdbe4ef,
+      metalness: 0.94,
+      roughness: 0.16,
+    })
+  );
+  const recessedObsidianMat = trackMat(
+    new THREE.MeshStandardMaterial({
+      color: 0x0b0e14,
+      metalness: 0.55,
+      roughness: 0.32,
+    })
+  );
+  const rimLightMat = trackMat(
+    new THREE.MeshStandardMaterial({
+      color: 0xeaf6ff,
+      emissive: 0xcbe9ff,
+      emissiveIntensity: 1.9,
+      roughness: 0.15,
+      metalness: 0.1,
+    })
+  );
+
+  // 1. Lower foreground offset plinth tier (y = 0 flush)
+  const lowerShape = createRoundedRectShape(0.36, 0.26, 0.032);
+  const lowerGeo = trackGeo(
+    new THREE.ExtrudeGeometry(lowerShape, {
+      depth: 0.042,
+      bevelEnabled: true,
+      bevelSegments: 3,
+      bevelSize: 0.006,
+      bevelThickness: 0.006,
+    })
+  );
+  lowerGeo.rotateX(-Math.PI / 2);
+  lowerGeo.translate(0, 0.006, 0);
+  const lowerTier = new THREE.Mesh(lowerGeo, darkTitaniumMat);
+  lowerTier.position.set(-0.04, 0, 0.04);
+  root.add(lowerTier);
+  registerPart(explodableParts, lowerTier, new THREE.Vector3(-0.07, -0.06, 0.06));
+
+  // 2. Upper hero pedestal tier on the right-rear
+  const upperShape = createRoundedRectShape(0.27, 0.24, 0.032);
+  const upperGeo = trackGeo(
+    new THREE.ExtrudeGeometry(upperShape, {
+      depth: 0.088,
+      bevelEnabled: true,
+      bevelSegments: 3,
+      bevelSize: 0.007,
+      bevelThickness: 0.007,
+    })
+  );
+  upperGeo.rotateX(-Math.PI / 2);
+  upperGeo.translate(0, 0.007, 0);
+  const upperTier = new THREE.Mesh(upperGeo, darkTitaniumMat);
+  upperTier.position.set(0.055, 0.0, -0.015);
+  root.add(upperTier);
+  registerPart(explodableParts, upperTier, new THREE.Vector3(0.04, -0.02, -0.04));
+
+  // 3. Illuminated hairline bevel seams wrapping both tiers
+  const upperSeamGeo = trackGeo(new THREE.BoxGeometry(0.246, 0.004, 0.216));
+  const upperSeam = new THREE.Mesh(upperSeamGeo, rimLightMat);
+  upperSeam.position.set(0.055, 0.098, -0.015);
+  root.add(upperSeam);
+  registerPart(explodableParts, upperSeam, new THREE.Vector3(0.04, 0.02, -0.04));
+
+  const lowerSeamGeo = trackGeo(new THREE.BoxGeometry(0.336, 0.0035, 0.236));
+  const lowerSeam = new THREE.Mesh(lowerSeamGeo, rimLightMat);
+  lowerSeam.position.set(-0.04, 0.052, 0.04);
+  root.add(lowerSeam);
+  registerPart(explodableParts, lowerSeam, new THREE.Vector3(-0.07, -0.03, 0.06));
+
+  // 4. Sweeping curved metallic architectural fin behind the plinth
+  const backFinCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-0.22, 0.02, -0.12),
+    new THREE.Vector3(-0.08, 0.22, -0.155),
+    new THREE.Vector3(0.14, 0.34, -0.145),
+    new THREE.Vector3(0.24, 0.18, -0.09),
+  ]);
+  const backFinGeo = trackGeo(new THREE.TubeGeometry(backFinCurve, 44, 0.012, 12, false));
+  const backFin = new THREE.Mesh(backFinGeo, darkTitaniumMat);
+  root.add(backFin);
+  registerPart(explodableParts, backFin, new THREE.Vector3(0, 0.09, -0.14));
+
+  const finLightCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-0.21, 0.05, -0.11),
+    new THREE.Vector3(-0.06, 0.245, -0.142),
+    new THREE.Vector3(0.14, 0.35, -0.132),
+  ]);
+  const finLightGeo = trackGeo(new THREE.TubeGeometry(finLightCurve, 36, 0.0024, 8, false));
+  const finLight = new THREE.Mesh(finLightGeo, rimLightMat);
+  root.add(finLight);
+  registerPart(explodableParts, finLight, new THREE.Vector3(0, 0.11, -0.14));
+
+  // 5. Iconic rounded-square ceramic-white monolith tile with stainless rim & recessed P emblem
+  const monolithGroup = new THREE.Group();
+  monolithGroup.position.set(0.058, 0.215, -0.012);
+  monolithGroup.rotation.y = -0.34;
+
+  const tileOuterShape = createRoundedRectShape(0.215, 0.215, 0.046);
+  // Brushed stainless side housing
+  const bezelGeo = trackGeo(
+    new THREE.ExtrudeGeometry(tileOuterShape, {
+      depth: 0.048,
+      bevelEnabled: true,
+      bevelSegments: 3,
+      bevelSize: 0.006,
+      bevelThickness: 0.006,
+    })
+  );
+  bezelGeo.translate(0, 0, -0.024);
+  const bezelShell = new THREE.Mesh(bezelGeo, brushedBezelMat);
+  monolithGroup.add(bezelShell);
+
+  // Satin white ceramic front & rear sculpted plates with recessed P holes!
+  const plateWithHoleShape = createRoundedRectShape(0.204, 0.204, 0.042);
+  const holeFacets = createPrimeTechFacetShapes(0.072);
+  for (const h of holeFacets) {
+    plateWithHoleShape.holes.push(h);
+  }
+  const ceramicPlateGeo = trackGeo(
+    new THREE.ExtrudeGeometry(plateWithHoleShape, {
+      depth: 0.014,
+      bevelEnabled: true,
+      bevelSegments: 2,
+      bevelSize: 0.0028,
+      bevelThickness: 0.0028,
+    })
+  );
+  const frontCeramic = new THREE.Mesh(ceramicPlateGeo, ceramicWhiteMat);
+  frontCeramic.position.z = 0.019;
+  const backCeramic = new THREE.Mesh(ceramicPlateGeo, ceramicWhiteMat);
+  backCeramic.position.z = -0.033;
+  monolithGroup.add(frontCeramic, backCeramic);
+
+  // Obsidian interior recessed P backing core inside the cutout
+  const coreGroup = new THREE.Group();
+  for (const f of holeFacets) {
+    const cGeo = trackGeo(
+      new THREE.ExtrudeGeometry(f, {
+        depth: 0.044,
+        bevelEnabled: false,
+      })
+    );
+    cGeo.translate(0, 0, -0.022);
+    const cMesh = new THREE.Mesh(cGeo, recessedObsidianMat);
+    coreGroup.add(cMesh);
+  }
+  monolithGroup.add(coreGroup);
+
+  root.add(monolithGroup);
+  registerPart(explodableParts, monolithGroup, new THREE.Vector3(0, 0.18, 0.04));
+
+  enableShadows(root, true, true);
+
+  return {
+    id: 'primetech-plinth',
+    root,
+    explodableParts,
+    primaryMetalMeshes: [bezelShell, frontCeramic, backCeramic],
+    accentMeshes: [lowerTier, upperTier, backFin],
+    emissiveMeshes: [upperSeam, lowerSeam, finLight],
+    updateAnimation: (elapsed, _delta, audio) => {
+      monolithGroup.position.y = 0.215 + Math.sin(elapsed * 1.1) * 0.006;
+      monolithGroup.rotation.y = -0.34 + Math.sin(elapsed * 0.45) * 0.06;
+      rimLightMat.emissiveIntensity = 1.7 + audio.overall * 2.1;
+    },
+    dispose: () => {
+      geometries.forEach((g) => g.dispose());
+      localMaterials.forEach((m) => m.dispose());
+    },
+  };
+}
+
