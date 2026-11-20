@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import './libraryGallery.css';
 import { LIBRARY_OPEN_EVENT, type LibraryItem, type LibraryManifest } from './libraryTypes.ts';
+import { u } from '../base';
 
 const THUMB_W = 480;
 const THUMB_H = 300;
@@ -84,7 +85,7 @@ export class LibraryGallery {
   private readonly thumbnailer = new GlbThumbnailer();
 
   constructor(options: { manifestUrl?: string } = {}) {
-    this.manifestUrl = options.manifestUrl ?? '/library/library.json';
+    this.manifestUrl = options.manifestUrl ?? u('/library/library.json');
   }
 
   mount(parent: HTMLElement): void {

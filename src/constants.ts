@@ -19,9 +19,10 @@ import type {
   TransitionType,
   VoiceName,
 } from './types.ts';
+import { u } from './base';
 
 export const REFERENCE_SKY_VIDEO_PATH =
-  '/assets/aistudio/Screen_Recording_2026-11-18_at_12.18.29_pm_ced0d7d7.mov';
+  u('/assets/aistudio/Screen_Recording_2026-11-18_at_12.18.29_pm_ced0d7d7.mov');
 
 export const SKY_PRESETS: SkyPresetMetadata[] = [
   {

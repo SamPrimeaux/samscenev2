@@ -18,6 +18,7 @@ import type {
   VoiceName,
 } from '../types.ts';
 import { SUBJECT_MAP } from '../constants.ts';
+import { u } from '../base';
 
 const VALID_VOICES = new Set<VoiceName>([
   'Kore',
@@ -61,7 +62,7 @@ const VALID_MOODS = new Set<AtmosphereMoodId>([
 ]);
 
 export async function synthesizeSpeech(payload: TtsRequest): Promise<TtsResponse> {
-  const response = await fetch('/api/tts', {
+  const response = await fetch(u('/api/tts'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -85,7 +86,7 @@ export async function assistScript(params: {
   topic?: string;
 }): Promise<string> {
   const subject = SUBJECT_MAP[params.subjectId];
-  const response = await fetch('/api/script-assist', {
+  const response = await fetch(u('/api/script-assist'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -110,7 +111,7 @@ export async function composeWithMiniAgentSam(params: {
   images: DroppedImageAsset[];
 }): Promise<ComposeResponse> {
   const subject = SUBJECT_MAP[params.subjectId];
-  const response = await fetch('/api/compose', {
+  const response = await fetch(u('/api/compose'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -178,7 +179,7 @@ export async function fetchStudioTemplates(filters?: {
   if (filters?.resource_kind) query.set('resource_kind', filters.resource_kind);
   if (filters?.q) query.set('q', filters.q);
   const qs = query.toString();
-  const response = await fetch(`/api/templates${qs ? `?${qs}` : ''}`);
+  const response = await fetch(u(`/api/templates${qs ? `?${qs}` : ''}`));
   const data = (await response.json()) as {
     templates?: StudioTemplateRecord[];
     error?: string;
@@ -192,7 +193,7 @@ export async function fetchStudioTemplates(filters?: {
 export async function createStudioTemplate(
   payload: Record<string, unknown>
 ): Promise<StudioTemplateRecord> {
-  const response = await fetch('/api/templates', {
+  const response = await fetch(u('/api/templates'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -208,7 +209,7 @@ export async function createStudioTemplate(
 }
 
 export async function deleteStudioTemplate(id: string): Promise<void> {
-  const response = await fetch(`/api/templates/${encodeURIComponent(id)}`, {
+  const response = await fetch(u(`/api/templates/${encodeURIComponent(id)}`), {
     method: 'DELETE',
   });
   if (!response.ok) {
@@ -218,7 +219,7 @@ export async function deleteStudioTemplate(id: string): Promise<void> {
 }
 
 export async function exportStudioTemplatesSql(): Promise<string> {
-  const response = await fetch('/api/templates/export.sql');
+  const response = await fetch(u('/api/templates/export.sql'));
   if (!response.ok) {
     throw new Error(`Failed to export studio_templates SQL (${response.status})`);
   }
@@ -232,7 +233,7 @@ export async function generateCharacterFromMedia(params: {
   generatePortrait: boolean;
   generateAnimationVideo: boolean;
 }): Promise<CharacterStudioResult> {
-  const response = await fetch('/api/agent/character-studio', {
+  const response = await fetch(u('/api/agent/character-studio'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
@@ -251,7 +252,7 @@ export async function generateScenePackFromVideoKeyframes(params: {
   generateCoverArt: boolean;
   generateAnimationVideo: boolean;
 }): Promise<ScenePackResult> {
-  const response = await fetch('/api/agent/video-keyframe-pack', {
+  const response = await fetch(u('/api/agent/video-keyframe-pack'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(params),
@@ -285,7 +286,7 @@ export interface LumberLookupSpec {
 }
 
 export async function fetchPrimeTechEcosystem(): Promise<PrimeTechEcosystemSnapshot> {
-  const response = await fetch('/api/primetech/ecosystem');
+  const response = await fetch(u('/api/primetech/ecosystem'));
   const data = (await response.json()) as Partial<PrimeTechEcosystemSnapshot> & { error?: string };
   if (!response.ok || !Array.isArray(data.tools)) {
     throw new Error(data.error || `Failed to load PrimeTech ecosystem (${response.status})`);
@@ -295,7 +296,7 @@ export async function fetchPrimeTechEcosystem(): Promise<PrimeTechEcosystemSnaps
 
 export async function lookupArchLumber(nominal?: string): Promise<LumberLookupSpec[]> {
   const qs = nominal ? `?nominal=${encodeURIComponent(nominal)}` : '';
-  const response = await fetch(`/api/primetech/arch-lookup${qs}`);
+  const response = await fetch(u(`/api/primetech/arch-lookup${qs}`));
   const data = (await response.json()) as { specs?: LumberLookupSpec[]; error?: string };
   if (!response.ok || !Array.isArray(data.specs)) {
     throw new Error(data.error || `Lumber lookup failed (${response.status})`);

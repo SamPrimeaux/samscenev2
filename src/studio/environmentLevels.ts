@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import type { EnvironmentLevelId } from '../types.ts';
 import type { StudioMaterialLibrary } from './materials.ts';
 import type { StudioTextureSet } from './textures.ts';
+import { u } from '../base';
 
 const _dummy = new THREE.Object3D();
 
@@ -476,7 +477,7 @@ export class EnvironmentLevelManager {
       };
 
       this.gltfLoader.load(
-        '/models/primetech-hero-chamber.glb',
+        u('/models/primetech-hero-chamber.glb'),
         (gltf) => {
           styleLoadedArchGlb(gltf.scene);
           chamberGroup.add(gltf.scene);
@@ -486,7 +487,7 @@ export class EnvironmentLevelManager {
         () => onPartLoaded()
       );
       this.gltfLoader.load(
-        '/models/primetech-p-icon.glb',
+        u('/models/primetech-p-icon.glb'),
         (gltf) => {
           styleLoadedArchGlb(gltf.scene);
           pIconAnchor.add(gltf.scene);
@@ -496,7 +497,7 @@ export class EnvironmentLevelManager {
         () => onPartLoaded()
       );
       this.gltfLoader.load(
-        '/models/primetech-wordmark.glb',
+        u('/models/primetech-wordmark.glb'),
         (gltf) => {
           styleLoadedArchGlb(gltf.scene);
           wordmarkAnchor.add(gltf.scene);
@@ -748,7 +749,7 @@ export class EnvironmentLevelManager {
       };
 
       this.gltfLoader.load(
-        '/models/primetech-sculptural-stage.glb',
+        u('/models/primetech-sculptural-stage.glb'),
         (gltf) => {
           styleLoadedStageGlb(gltf.scene);
           stageRoot.add(gltf.scene);
@@ -758,7 +759,7 @@ export class EnvironmentLevelManager {
         () => onPartLoaded()
       );
       this.gltfLoader.load(
-        '/models/primetech-plinth-tile.glb',
+        u('/models/primetech-plinth-tile.glb'),
         (gltf) => {
           styleLoadedStageGlb(gltf.scene);
           gltf.scene.scale.setScalar(1.18);

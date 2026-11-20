@@ -1,4 +1,5 @@
 import './onboarding.css';
+import { u } from '../base';
 
 type BrandColor = 'purple' | 'red' | 'orange' | 'blue' | 'green';
 
@@ -102,7 +103,7 @@ export class Onboarding {
 
   constructor(options: { storageKey?: string; dataUrl?: string } = {}) {
     this.storageKey = options.storageKey ?? 'primetech.onboarding';
-    this.dataUrl = options.dataUrl ?? '/library/onboarding.json';
+    this.dataUrl = options.dataUrl ?? u('/library/onboarding.json');
   }
 
   readProfile(): OnboardingProfile | null {

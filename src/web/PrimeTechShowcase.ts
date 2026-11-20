@@ -11,6 +11,7 @@ import type {
   StudioSubjectId,
   ThemeSceneDefinition,
 } from '../types.ts';
+import { u } from '../base';
 
 export type ShowcaseTargetTab =
   | 'sam'
@@ -57,7 +58,7 @@ export const SHOWCASE_GLB_ASSETS: ShowcaseGlbModelAsset[] = [
   {
     id: 'p-icon',
     filename: 'primetech-p-icon.glb',
-    url: '/models/primetech-p-icon.glb',
+    url: u('/models/primetech-p-icon.glb'),
     title: '5-Facet P Icon Emblem',
     sceneSlot: 'scene1',
     heroMode: 'p-icon',
@@ -68,7 +69,7 @@ export const SHOWCASE_GLB_ASSETS: ShowcaseGlbModelAsset[] = [
   {
     id: 'wordmark',
     filename: 'primetech-wordmark.glb',
-    url: '/models/primetech-wordmark.glb',
+    url: u('/models/primetech-wordmark.glb'),
     title: 'PRIMETECH 3D Wordmark & Divider',
     sceneSlot: 'scene1',
     heroMode: 'wordmark',
@@ -79,7 +80,7 @@ export const SHOWCASE_GLB_ASSETS: ShowcaseGlbModelAsset[] = [
   {
     id: 'hero-chamber',
     filename: 'primetech-hero-chamber.glb',
-    url: '/models/primetech-hero-chamber.glb',
+    url: u('/models/primetech-hero-chamber.glb'),
     title: 'Scene 01 Obsidian Chamber',
     sceneSlot: 'scene1',
     heroMode: 'full-hero',
@@ -90,7 +91,7 @@ export const SHOWCASE_GLB_ASSETS: ShowcaseGlbModelAsset[] = [
   {
     id: 'plinth-tile',
     filename: 'primetech-plinth-tile.glb',
-    url: '/models/primetech-plinth-tile.glb',
+    url: u('/models/primetech-plinth-tile.glb'),
     title: 'Ceramic P Monolith Block',
     sceneSlot: 'scene2',
     heroMode: 'full-hero',
@@ -101,7 +102,7 @@ export const SHOWCASE_GLB_ASSETS: ShowcaseGlbModelAsset[] = [
   {
     id: 'sculptural-stage',
     filename: 'primetech-sculptural-stage.glb',
-    url: '/models/primetech-sculptural-stage.glb',
+    url: u('/models/primetech-sculptural-stage.glb'),
     title: 'Scene 02 Sculptural Gallery Stage',
     sceneSlot: 'scene2',
     heroMode: 'full-hero',
@@ -347,7 +348,7 @@ export class PrimeTechShowcase {
 
   private async loadThemeScenes(): Promise<void> {
     try {
-      const resp = await fetch('/api/theme-scenes');
+      const resp = await fetch(u('/api/theme-scenes'));
       if (!resp.ok) return;
       const data = (await resp.json()) as { scenes?: ThemeSceneDefinition[] };
       if (Array.isArray(data.scenes)) {
